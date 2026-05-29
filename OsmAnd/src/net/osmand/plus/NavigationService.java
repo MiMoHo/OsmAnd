@@ -84,6 +84,13 @@ public class NavigationService extends Service {
 		OsmandApplication app = getApp();
 		NavigationSession carSession = app.getCarNavigationSession();
 		if (start) {
+			if (isUsedBy(USED_BY_NAVIGATION)) {
+				try {
+					app.startService(new Intent(app, net.osmand.plus.wear.OsmAndCompanionService.class));
+				} catch (Exception e) {
+					LOG.error("Failed to start OsmAndCompanionService", e);
+				}
+			}
 			if (carSession != null) {
 				if (isUsedBy(USED_BY_NAVIGATION)) {
 					carSession.startCarNavigation();
@@ -94,6 +101,11 @@ public class NavigationService extends Service {
 			}
 		} else {
 			if (!isUsedBy(USED_BY_NAVIGATION)) {
+				try {
+					app.stopService(new Intent(app, net.osmand.plus.wear.OsmAndCompanionService.class));
+				} catch (Exception e) {
+					LOG.error("Failed to stop OsmAndCompanionService", e);
+				}
 				if (carSession != null) {
 					carSession.stopCarNavigation();
 				}

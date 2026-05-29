@@ -1193,6 +1193,13 @@
 				<category android:name="androidx.car.app.category.NAVIGATION"/>
 			</intent-filter>
 		</service>
+		<service
+			android:name=".wear.OsmAndCompanionService"
+			android:exported="true">
+			<intent-filter>
+				<action android:name="net.osmand.plus.wear.COMPANION_SERVICE" />
+			</intent-filter>
+		</service>
 	</application>
 
 </manifest> 
