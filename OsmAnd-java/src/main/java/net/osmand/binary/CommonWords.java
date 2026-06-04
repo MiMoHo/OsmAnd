@@ -185,7 +185,7 @@ public class CommonWords {
 		addCommon(NUMBER_WITH_LESS_THAN_2_LETTERS);
 		addCalculatedCommonWords();
 		addAbbrevations();
-		addRegionNames(); // add regions names and region abbreviations
+		//addRegionNames(); // add regions names and region abbreviations
 		addCalculatedFrequentWords();
 	}
 		
