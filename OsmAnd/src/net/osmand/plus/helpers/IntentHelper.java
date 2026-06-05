@@ -144,7 +144,8 @@ public class IntentHelper {
 	}
 
 	public boolean parseLaunchIntents() {
-		return parseNavigationIntent()
+		return parseLiveTrackIntent()
+				|| parseNavigationIntent()
 				|| parseBackupAuthorizationIntent()
 				|| parseSetPinOnMapIntent()
 				|| parseMoveMapToLocationIntent()
@@ -154,6 +155,28 @@ public class IntentHelper {
 				|| parseOpenGpxIntent()
 				|| parseSendIntent()
 				|| parseOAuthIntent();
+	}
+
+	// Web live track share link: https://osmand.net/map/live/?tid=...#<64-hex key>
+	// Opening it on the device sets the encryption key and points Live monitoring at the
+	// translation, so the phone broadcasts its (encrypted) location into that live track.
+	private boolean parseLiveTrackIntent() {
+		Intent intent = mapActivity.getIntent();
+		if (intent != null && isUriHierarchical(intent)) {
+			Uri data = intent.getData();
+			if (isOsmAndSite(data) && isPathPrefix(data, "/map/live")) {
+				String key = data.getFragment();
+				if (key != null && key.matches("[0-9a-f]{64}")) {
+					settings.LIVE_MONITORING_TRANSLATION_KEY.set(key);
+					settings.LIVE_MONITORING_URL.set(data.getHost());
+					settings.LIVE_MONITORING.set(true);
+					app.showShortToastMessage(R.string.live_track_sharing_enabled);
+					clearIntent(intent);
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	private boolean parseNavigationIntent() {

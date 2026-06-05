@@ -18,9 +18,11 @@ import org.apache.commons.logging.Log;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -69,14 +71,14 @@ class LiveSender extends AsyncTask<Void, Void, Void> {
 		String urlStr;
 		try {
 			if (baseUrl.equals("test.osmand.net") || baseUrl.equals("osmand.net")) {
-				// "https://example.com?lat={0}&lon={1}&timestamp={2}&hdop={3}&altitude={4}&speed={5}").makeProfile();
-				baseUrl = "https://" + baseUrl + "/userdata/translation/msg?" +
-						"lat={0}&lon={1}&timestamp={2}&" +
-						"hdop={3}&altitude={4}&speed={5}&" +
-						"bearing={6}&tta={7}&ttf={8}&dta={9}&dtf={10}&batproc={11}&" +
-						"deviceid={12}&accessToken={13}";
+				// OsmAnd live track: send the location encrypted
+				urlStr = getTranslationUrl(baseUrl, data);
+				if (urlStr == null) {
+					return false;
+				}
+			} else {
+				urlStr = getLiveUrl(baseUrl, data);
 			}
-			urlStr = getLiveUrl(baseUrl, data);
 		} catch (IllegalArgumentException e) {
 			log.error("Could not construct live url from base url: " + baseUrl, e);
 			return false;
@@ -179,5 +181,32 @@ class LiveSender extends AsyncTask<Void, Void, Void> {
 			}
 		}
 		return MessageFormat.format(baseUrl, prm.toArray());
+	}
+
+	// Builds the OsmAnd live track URL with the location encrypted into a single `encryptedData`
+	// param. Returns null when no translation key is configured (then the point is simply skipped).
+	private String getTranslationUrl(@NonNull String host, @NonNull LiveMonitoringData data) {
+		String keyHex = app.getSettings().LIVE_MONITORING_TRANSLATION_KEY.get();
+		if (Algorithms.isEmpty(keyHex)) {
+			log.info("Live track translation key is not set — skipping encrypted send");
+			return null;
+		}
+		String encryptedData = LiveTrackCrypto.encrypt(keyHex, data);
+		if (encryptedData == null) {
+			log.error("Failed to encrypt live track location");
+			return null;
+		}
+		String deviceId = app.getSettings().BACKUP_DEVICE_ID.get();
+		String accessToken = app.getSettings().BACKUP_ACCESS_TOKEN.get();
+		return "https://" + host + "/userdata/translation/msg?deviceid=" + encode(deviceId)
+				+ "&accessToken=" + encode(accessToken) + "&encryptedData=" + encode(encryptedData);
+	}
+
+	private static String encode(@NonNull String value) {
+		try {
+			return URLEncoder.encode(value, "UTF-8");
+		} catch (UnsupportedEncodingException e) {
+			return value;
+		}
 	}
 }
