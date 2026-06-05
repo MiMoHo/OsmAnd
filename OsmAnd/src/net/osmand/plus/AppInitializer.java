@@ -257,7 +257,6 @@ public class AppInitializer implements IProgress {
 				InputStream stream = OsmandRegions.class.getResourceAsStream("regions.ocbf");
 				Algorithms.streamCopy(stream, new FileOutputStream(file));
 			}
-			app.regions.prepareFile(file.getAbsolutePath());
 			app.regions.setTranslator(new RegionTranslation() {
 
 				@Override
@@ -285,6 +284,7 @@ public class AppInitializer implements IProgress {
 				}
 			});
 			app.regions.setLocale(app.getLanguage(), app.getLocaleHelper().getCountry());
+			app.regions.prepareFile(file.getAbsolutePath());
 			PlatformUtil.setOsmandRegions(app.regions);
 		} catch (Exception e) {
 			warnings.add(e.getMessage());
@@ -585,14 +585,22 @@ public class AppInitializer implements IProgress {
 					continue;
 				}
 				int updateFrequencyOrd = preferenceUpdateFrequency(fileName, settings).get();
-				UpdateFrequency updateFrequency = UpdateFrequency.values()[updateFrequencyOrd];
+				UpdateFrequency[] updateFrequencies = UpdateFrequency.values();
+				if (updateFrequencyOrd < 0 || updateFrequencyOrd >= updateFrequencies.length) {
+					continue;
+				}
+				UpdateFrequency updateFrequency = updateFrequencies[updateFrequencyOrd];
 				long lastCheck = preferenceLastSuccessfulUpdateCheck(fileName, settings).get();
 
 				if (System.currentTimeMillis() - lastCheck > updateFrequency.intervalMillis * 2) {
 					runLiveUpdate(app, fileName, false, null);
 					PendingIntent alarmIntent = getPendingIntent(app, fileName);
 					int timeOfDayOrd = preferenceTimeOfDayToUpdate(fileName, settings).get();
-					TimeOfDay timeOfDayToUpdate = TimeOfDay.values()[timeOfDayOrd];
+					TimeOfDay[] timeOfDayValues = TimeOfDay.values();
+					if (timeOfDayOrd < 0 || timeOfDayOrd >= timeOfDayValues.length) {
+						continue;
+					}
+					TimeOfDay timeOfDayToUpdate = timeOfDayValues[timeOfDayOrd];
 					setAlarmForPendingIntent(alarmIntent, manager, updateFrequency, timeOfDayToUpdate);
 				}
 			}
