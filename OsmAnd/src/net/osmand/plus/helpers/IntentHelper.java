@@ -166,10 +166,12 @@ public class IntentHelper {
 			Uri data = intent.getData();
 			if (isOsmAndSite(data) && isPathPrefix(data, "/map/live")) {
 				String key = data.getFragment();
-				if (key != null && key.matches("[0-9a-f]{64}")) {
+				String tid = data.getQueryParameter("tid");
+				if (key != null && key.matches("[0-9a-f]{64}") && tid != null && tid.matches("[0-9a-f]{16}")) {
 					settings.LIVE_MONITORING_TRANSLATION_KEY.set(key);
 					settings.LIVE_MONITORING_URL.set(data.getHost());
 					settings.LIVE_MONITORING.set(true);
+					requestShareAccess(data.getHost(), tid);
 					app.showShortToastMessage(R.string.live_track_sharing_enabled);
 					clearIntent(intent);
 					return true;
@@ -177,6 +179,22 @@ public class IntentHelper {
 			}
 		}
 		return false;
+	}
+
+	// Ask the live track owner for permission to broadcast into this translation.
+	// The owner approves from the web; until then the server rejects this device's points.
+	private void requestShareAccess(@NonNull String host, @NonNull String tid) {
+		String deviceId = settings.BACKUP_DEVICE_ID.get();
+		String accessToken = settings.BACKUP_ACCESS_TOKEN.get();
+		if (Algorithms.isEmpty(deviceId) || Algorithms.isEmpty(accessToken)) {
+			return;
+		}
+		Map<String, String> params = new HashMap<>();
+		params.put("deviceid", deviceId);
+		params.put("accessToken", accessToken);
+		params.put("tid", tid);
+		String url = "https://" + host + "/userdata/translation/requestShare";
+		AndroidNetworkUtils.sendRequestAsync(app, url, params, null, false, false, null);
 	}
 
 	private boolean parseNavigationIntent() {
