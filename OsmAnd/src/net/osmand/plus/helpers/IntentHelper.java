@@ -935,7 +935,11 @@ public class IntentHelper {
 
 	private boolean isOsmAndHost(@NonNull Uri uri) {
 		String host = uri.getHost();
-		return host != null && host.endsWith("osmand.net");
+		if (host == null) {
+			return false;
+		}
+		host = host.toLowerCase(Locale.US);
+		return host.equals(URL_AUTHORITY) || host.endsWith("." + URL_AUTHORITY);
 	}
 
 	private boolean isPathPrefix(@NonNull Uri uri, @NonNull String pathPrefix) {
