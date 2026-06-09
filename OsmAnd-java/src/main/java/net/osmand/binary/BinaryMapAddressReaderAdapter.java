@@ -955,6 +955,7 @@ public class BinaryMapAddressReaderAdapter {
 		boolean add = true; 
 		boolean matched = suffixMask != null && suffixMask.shouldPassThrough();
 		boolean legacyBitset = false;
+		boolean compactSuffixes = false;
 		int maskIndex = 0;
 		List<Integer> suffixesBitsetIndex = new ArrayList<>();
 		String extraSuffix = null;
@@ -965,8 +966,8 @@ public class BinaryMapAddressReaderAdapter {
 			int t = codedIS.readTag();
 			int tag = WireFormat.getTagFieldNumber(t);
 			if(tag == 0 || tag == AddressNameIndexDataAtom.SHIFTTOINDEX_FIELD_NUMBER) {
-				boolean atomMatched = matched || (!legacyBitset && suffixMask != null
-						&& suffixMask.isCompactMatched(suffixesBitsetIndex, extraSuffix));
+				boolean atomMatched = (!legacyBitset || matched) && (!compactSuffixes || suffixMask == null
+						|| suffixMask.isCompactMatched(suffixesBitsetIndex, extraSuffix));
 				if (toAdd != null && add && atomMatched) {
 					if (shiftindex != 0) {
 						toAdd.add(shiftindex);
@@ -994,9 +995,11 @@ public class BinaryMapAddressReaderAdapter {
 				maskIndex++;
 				break;
 			case AddressNameIndexDataAtom.SUFFIXESBITSETINDEX_FIELD_NUMBER:
+				compactSuffixes = true;
 				suffixesBitsetIndex.add(codedIS.readUInt32());
 				break;
 			case AddressNameIndexDataAtom.EXTRASUFFIX_FIELD_NUMBER:
+				compactSuffixes = true;
 				extraSuffix = codedIS.readString();
 				break;
 			case AddressNameIndexDataAtom.SHIFTTOCITYINDEX_FIELD_NUMBER:

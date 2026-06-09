@@ -692,6 +692,7 @@ public class BinaryMapPoiReaderAdapter {
 		int shift = Integer.MIN_VALUE;
 		boolean matched = suffixMask != null && suffixMask.shouldPassThrough();
 		boolean legacyBitset = false;
+		boolean compactSuffixes = false;
 		int maskIndex = 0;
 		List<Integer> suffixesBitsetIndex = new ArrayList<>();
 		String extraSuffix = null;
@@ -701,10 +702,9 @@ public class BinaryMapPoiReaderAdapter {
 			int tag = WireFormat.getTagFieldNumber(t);
 			switch (tag) {
 			case 0:
-				if (!legacyBitset && !matched && suffixMask != null) {
-					matched = suffixMask.isCompactMatched(suffixesBitsetIndex, extraSuffix);
-				}
-				if (!matched) {
+				boolean atomMatched = (!legacyBitset || matched) && (!compactSuffixes || suffixMask == null
+						|| suffixMask.isCompactMatched(suffixesBitsetIndex, extraSuffix));
+				if (!atomMatched) {
 					return;
 				}
 				if (shift != Integer.MIN_VALUE) {
@@ -747,9 +747,11 @@ public class BinaryMapPoiReaderAdapter {
 				maskIndex++;
 				break;
 			case OsmandOdb.OsmAndPoiNameIndexDataAtom.SUFFIXESBITSETINDEX_FIELD_NUMBER:
+				compactSuffixes = true;
 				suffixesBitsetIndex.add(codedIS.readUInt32());
 				break;
 			case OsmandOdb.OsmAndPoiNameIndexDataAtom.EXTRASUFFIX_FIELD_NUMBER:
+				compactSuffixes = true;
 				extraSuffix = codedIS.readString();
 				break;
 			case OsmandOdb.OsmAndPoiNameIndexDataAtom.POIINDINBLOCK_FIELD_NUMBER:
