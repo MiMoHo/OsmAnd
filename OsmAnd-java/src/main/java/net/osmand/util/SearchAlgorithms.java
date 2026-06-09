@@ -258,6 +258,18 @@ public class SearchAlgorithms {
         public final Map<T, int[]> bitsets = new LinkedHashMap<>();
     }
 
+    public static class CompactSuffixes {
+        public final List<Integer> suffixesBitsetIndex = new ArrayList<>();
+        public String extraSuffix;
+    }
+
+    public static class CompactSuffixDictionary<T> {
+        public static final int MAX_DICTIONARY_SIZE = 128;
+        public final List<SuffixEntry> dictionaryEntries = new ArrayList<>();
+        public final Map<String, Integer> resolvedSuffixToIndex = new HashMap<>();
+        public final Map<T, CompactSuffixes> suffixes = new LinkedHashMap<>();
+    }
+
     private static boolean startsWithSuffixMarker(String value) {
         if (value.isEmpty()) {
             return false;
@@ -347,6 +359,131 @@ public class SearchAlgorithms {
             data.bitsets.put(object, bitsetWords);
         }
         return data;
+    }
+
+    public static <T> CompactSuffixDictionary<T> nameIndexBuildCompactSuffixDictionary(String prefix, List<T> objects,
+                                                                                       Function<T, Collection<String>> tokenSupplier) {
+        CompactSuffixDictionary<T> data = new CompactSuffixDictionary<>();
+        Map<T, Set<String>> suffixesByObject = new LinkedHashMap<>();
+        Map<String, Integer> suffixFrequency = new HashMap<>();
+        for (T object : objects) {
+            Set<String> objectSuffixes = new LinkedHashSet<>();
+            suffixesByObject.put(object, objectSuffixes);
+            for (String token : tokenSupplier.apply(object)) {
+                if (Objects.equals(token, prefix) || encodePureDecimalSuffix(token) != null) {
+                    continue;
+                }
+                objectSuffixes.add(token);
+            }
+            for (String suffix : objectSuffixes) {
+                suffixFrequency.merge(suffix, 1, Integer::sum);
+            }
+        }
+        List<String> dictionarySuffixes = new ArrayList<>(suffixFrequency.keySet());
+        dictionarySuffixes.sort(Comparator
+                .comparingInt((String suffix) -> suffixFrequency.get(suffix)).reversed()
+                .thenComparing(Comparator.naturalOrder()));
+        if (dictionarySuffixes.size() > CompactSuffixDictionary.MAX_DICTIONARY_SIZE) {
+            dictionarySuffixes = dictionarySuffixes.subList(0, CompactSuffixDictionary.MAX_DICTIONARY_SIZE);
+        }
+        Collections.sort(dictionarySuffixes);
+        String previousSuffix = null;
+        for (String suffix : dictionarySuffixes) {
+            String encodedSuffix = nameIndexEncodeSuffix(suffix, previousSuffix);
+            SuffixEntry entry = new SuffixEntry(suffix, encodedSuffix);
+            data.resolvedSuffixToIndex.put(entry.resolvedSuffix(), data.dictionaryEntries.size());
+            data.dictionaryEntries.add(entry);
+            previousSuffix = suffix;
+        }
+        for (T object : objects) {
+            CompactSuffixes objectSuffixes = new CompactSuffixes();
+            List<String> extraSuffixes = new ArrayList<>();
+            for (String suffix : suffixesByObject.getOrDefault(object, Collections.emptySet())) {
+                Integer suffixIndex = data.resolvedSuffixToIndex.get(suffix);
+                if (suffixIndex == null) {
+                    extraSuffixes.add(suffix);
+                } else {
+                    objectSuffixes.suffixesBitsetIndex.add(suffixIndex << 1);
+                }
+            }
+            for (String token : tokenSupplier.apply(object)) {
+                if (!Objects.equals(token, prefix)) {
+                    Integer encodedNumber = encodePureDecimalSuffix(token);
+                    if (encodedNumber != null) {
+                        objectSuffixes.suffixesBitsetIndex.add(encodedNumber);
+                    }
+                }
+            }
+            Collections.sort(objectSuffixes.suffixesBitsetIndex);
+            Collections.sort(extraSuffixes);
+            if (!extraSuffixes.isEmpty()) {
+                objectSuffixes.extraSuffix = String.join(" ", extraSuffixes);
+            }
+            data.suffixes.put(object, objectSuffixes);
+        }
+        return data;
+    }
+
+    public static boolean isPureDecimalInteger(String token) {
+        if (token == null || token.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < token.length(); i++) {
+            if (!Character.isDigit(token.charAt(i))) {
+                return false;
+            }
+        }
+        return token.length() == 1 || token.charAt(0) != '0';
+    }
+
+    private static Integer encodePureDecimalSuffix(String token) {
+        if (!isPureDecimalInteger(token)) {
+            return null;
+        }
+        try {
+            long value = Long.parseLong(token);
+            if (value > 0x7fffffffL) {
+                return null;
+            }
+            return (int) ((value << 1) | 1);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static Set<String> nameIndexPrepareComplexPrefixes(List<String> tokens) {
+        return nameIndexPrepareComplexPrefixes(tokens, false);
+    }
+
+    public static Set<String> nameIndexPrepareComplexPrefixes(List<String> tokens, boolean allowNumberPrefixes) {
+        List<String> uniqueTokens = new ArrayList<>(new LinkedHashSet<>(tokens));
+        List<String> usual = new ArrayList<>();
+        List<String> frequent = new ArrayList<>();
+        List<String> common = new ArrayList<>();
+        List<String> numbers = new ArrayList<>();
+        for (String token : uniqueTokens) {
+            if (CommonWords.isNumber2Letters(token)) {
+                numbers.add(token);
+            } else if (CommonWords.getCommon(token) != -1) {
+                common.add(token);
+            } else if (CommonWords.getFrequentlyUsed(token) != -1) {
+                frequent.add(token);
+            } else {
+                usual.add(token);
+            }
+        }
+        LinkedHashSet<String> prefixes = new LinkedHashSet<>();
+        if (!usual.isEmpty()) {
+            prefixes.addAll(usual);
+            prefixes.addAll(frequent);
+        } else if (!frequent.isEmpty()) {
+            prefixes.addAll(frequent);
+        } else if (!common.isEmpty()) {
+            prefixes.addAll(common);
+        } else if (allowNumberPrefixes) {
+            prefixes.addAll(numbers);
+        }
+        return prefixes;
     }
 
     public static String replaceGermanSS(String fullText) {

@@ -760,6 +760,7 @@ public class BinaryMapAddressReaderAdapter {
 						} else if (stag == AddressNameIndexData.ATOM_FIELD_NUMBER) {
 							if (!suffixDictionaryInitialized && suffixMask != null) {
 								suffixMask.setDictionary(suffixDictionary);
+								suffixMask.setCompactDictionary(suffixDictionary);
 								suffixDictionaryInitialized = true;
 							}
 							long slen = codedIS.readRawVarint32();
@@ -833,10 +834,10 @@ public class BinaryMapAddressReaderAdapter {
 								}
 								publishRawData(req, s);
 								long matcherStartNs = metrics == null ? 0 : System.nanoTime();
-								boolean matches = stringMatcher.matches(s.getName());
+								boolean matches = matchesByNameTokens(stringMatcher, req.nameQuery, s.getName());
 								if (!matches) {
 									for (String n : s.getOtherNames()) {
-										matches = stringMatcher.matches(n);
+										matches = matchesByNameTokens(stringMatcher, req.nameQuery, n);
 										if (matches) {
 											break;
 										}
@@ -953,7 +954,10 @@ public class BinaryMapAddressReaderAdapter {
 		int shiftcityindex = 0;
 		boolean add = true; 
 		boolean matched = suffixMask != null && suffixMask.shouldPassThrough();
+		boolean legacyBitset = false;
 		int maskIndex = 0;
+		List<Integer> suffixesBitsetIndex = new ArrayList<>();
+		String extraSuffix = null;
 		while (true) {
 			if (req.isCancelled()) {
 				return;
@@ -961,7 +965,9 @@ public class BinaryMapAddressReaderAdapter {
 			int t = codedIS.readTag();
 			int tag = WireFormat.getTagFieldNumber(t);
 			if(tag == 0 || tag == AddressNameIndexDataAtom.SHIFTTOINDEX_FIELD_NUMBER) {
-				if (toAdd != null && add && matched) {
+				boolean atomMatched = matched || (!legacyBitset && suffixMask != null
+						&& suffixMask.isCompactMatched(suffixesBitsetIndex, extraSuffix));
+				if (toAdd != null && add && atomMatched) {
 					if (shiftindex != 0) {
 						toAdd.add(shiftindex);
 					}
@@ -980,11 +986,18 @@ public class BinaryMapAddressReaderAdapter {
 				codedIS.readString();
 				break;
 			case AddressNameIndexDataAtom.SUFFIXESBITSET_FIELD_NUMBER:
+				legacyBitset = true;
 				int mask = codedIS.readUInt32();
 				if (!matched && suffixMask != null && suffixMask.isMatched(maskIndex, mask)) {
 					matched = true;
 				}
 				maskIndex++;
+				break;
+			case AddressNameIndexDataAtom.SUFFIXESBITSETINDEX_FIELD_NUMBER:
+				suffixesBitsetIndex.add(codedIS.readUInt32());
+				break;
+			case AddressNameIndexDataAtom.EXTRASUFFIX_FIELD_NUMBER:
+				extraSuffix = codedIS.readString();
 				break;
 			case AddressNameIndexDataAtom.SHIFTTOCITYINDEX_FIELD_NUMBER:
 				if (toAddCity != null) {
@@ -1018,5 +1031,29 @@ public class BinaryMapAddressReaderAdapter {
 		if (resultMatcher != null && obj != null) {
 			resultMatcher.collectRawData(obj);
 		}
+	}
+
+	private boolean matchesByNameTokens(CollatorStringMatcher matcher, String query, String name) {
+		if (name == null || name.isEmpty()) {
+			return false;
+		}
+		if (matcher.matches(name)) {
+			return true;
+		}
+		List<String> queryTokens = SearchAlgorithms.splitAndNormalize(query);
+		List<String> nameTokens = SearchAlgorithms.splitAndNormalize(name);
+		for (String queryToken : queryTokens) {
+			boolean tokenMatched = false;
+			for (String nameToken : nameTokens) {
+				if (CollatorStringMatcher.cmatches(matcher.getCollator(), nameToken, queryToken, matcher.getMode())) {
+					tokenMatched = true;
+					break;
+				}
+			}
+			if (!tokenMatched) {
+				return false;
+			}
+		}
+		return !queryTokens.isEmpty();
 	}
 }
