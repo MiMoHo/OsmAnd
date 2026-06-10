@@ -6,9 +6,11 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import android.os.AsyncTask;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import net.osmand.PlatformUtil;
 import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.helpers.IntentHelper;
 import net.osmand.plus.utils.AndroidNetworkUtils;
 import net.osmand.shared.gpx.GpxFormatter;
 import net.osmand.util.Algorithms;
@@ -25,7 +27,9 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 
 class LiveSender extends AsyncTask<Void, Void, Void> {
@@ -67,24 +71,45 @@ class LiveSender extends AsyncTask<Void, Void, Void> {
 
 	public boolean sendData(@NonNull LiveMonitoringData data) {
 		String baseUrl = app.getSettings().LIVE_MONITORING_URL.get();
-		boolean retry = false;
+		if (IntentHelper.isOsmAndHost(baseUrl)) {
+			sendLiveTrack(baseUrl, data);
+			return true;
+		}
 		String urlStr;
 		try {
-			if (baseUrl.equals("test.osmand.net") || baseUrl.equals("osmand.net")) {
-				// OsmAnd live track: send the location encrypted
-				urlStr = getTranslationUrl(baseUrl, data);
-				if (urlStr == null) {
-					queue.poll(); // skip point (no key / encryption error)
-					return true;
-				}
-			} else {
-				urlStr = getLiveUrl(baseUrl, data);
-			}
+			urlStr = getLiveUrl(baseUrl, data);
 		} catch (IllegalArgumentException e) {
 			log.error("Could not construct live url from base url: " + baseUrl, e);
 			return false;
 		}
+		boolean ok = sendToUrl(urlStr) / 100 == 2;
+		if (ok) {
+			queue.poll();
+		}
+		return ok;
+	}
+
+	private void sendLiveTrack(@NonNull String baseUrl, @NonNull LiveMonitoringData data) {
+		List<String> translations = app.getSettings().LIVE_MONITORING_TRANSLATIONS.getStringsList();
+		Map<String, String> urlsByTranslation = getTranslationUrls(baseUrl, data, translations);
+		if (urlsByTranslation.isEmpty()) {
+			queue.poll(); // nothing to send (no translations / not registered)
+			return;
+		}
+		for (Map.Entry<String, String> entry : urlsByTranslation.entrySet()) {
+			int code = sendToUrl(entry.getValue());
+			if (code == HttpURLConnection.HTTP_GONE) {
+				// Translation deleted on the server — stop broadcasting into it.
+				app.getSettings().LIVE_MONITORING_TRANSLATIONS.removeValue(entry.getKey());
+				log.info("Live track translation gone (410) — removed from broadcast set");
+			}
+		}
+		queue.poll();
+	}
+
+	private int sendToUrl(@NonNull String urlStr) {
 		InputStream is = null;
+		int code = -1;
 		try {
 			// Parse the URL and let the URI constructor handle proper encoding of special characters such as spaces
 			URL url = new URL(urlStr);
@@ -94,12 +119,10 @@ class LiveSender extends AsyncTask<Void, Void, Void> {
 			urlConnection.setConnectTimeout(AndroidNetworkUtils.CONNECT_TIMEOUT);
 			urlConnection.setReadTimeout(AndroidNetworkUtils.READ_TIMEOUT);
 			log.info("Monitor " + uri);
-			if (urlConnection.getResponseCode() / 100 != 2) {
-				String msg = urlConnection.getResponseCode() + " : " + urlConnection.getResponseMessage();
-				log.error("Error sending monitor request: " + msg);
+			code = urlConnection.getResponseCode();
+			if (code / 100 != 2) {
+				log.error("Error sending monitor request: " + code + " : " + urlConnection.getResponseMessage());
 			} else {
-				retry = true; // move to next point
-				queue.poll();
 				is = urlConnection.getInputStream();
 				StringBuilder builder = new StringBuilder();
 				if (is != null) {
@@ -114,12 +137,11 @@ class LiveSender extends AsyncTask<Void, Void, Void> {
 			}
 			urlConnection.disconnect();
 		} catch (Exception e) {
-			retry = false;
 			log.error("Failed connect to " + urlStr + ": " + e.getMessage(), e);
 		} finally {
 			Algorithms.closeStream(is);
 		}
-		return retry;
+		return code;
 	}
 
 	private String getLiveUrl(@NonNull String baseUrl, @NonNull LiveMonitoringData data) {
@@ -184,27 +206,39 @@ class LiveSender extends AsyncTask<Void, Void, Void> {
 		return MessageFormat.format(baseUrl, prm.toArray());
 	}
 
-	// Builds the OsmAnd live track URL with the location encrypted into a single `encryptedData`
-	// param. Returns null when no translation key is configured (then the point is simply skipped).
-	private String getTranslationUrl(@NonNull String host, @NonNull LiveMonitoringData data) {
-		String keyHex = app.getSettings().LIVE_MONITORING_TRANSLATION_KEY.get();
-		if (Algorithms.isEmpty(keyHex)) {
-			log.info("Live track translation key is not set — skipping encrypted send");
-			return null;
-		}
-		String encryptedData = LiveTrackCrypto.encrypt(keyHex, data);
-		if (encryptedData == null) {
-			log.error("Failed to encrypt live track location");
-			return null;
+	private Map<String, String> getTranslationUrls(@NonNull String host, @NonNull LiveMonitoringData data,
+			@Nullable List<String> translations) {
+		Map<String, String> urls = new LinkedHashMap<>();
+		if (translations == null || translations.isEmpty()) {
+			log.info("No live track translations set — skipping encrypted send");
+			return urls;
 		}
 		String deviceId = app.getSettings().BACKUP_DEVICE_ID.get();
 		String accessToken = app.getSettings().BACKUP_ACCESS_TOKEN.get();
 		if (Algorithms.isEmpty(deviceId) || Algorithms.isEmpty(accessToken)) {
 			log.info("Live track device is not registered (deviceId/accessToken missing) — skipping encrypted send");
-			return null;
+			return urls;
 		}
-		return "https://" + host + "/userdata/translation/msg?deviceid=" + encode(deviceId)
-				+ "&accessToken=" + encode(accessToken) + "&encryptedData=" + encode(encryptedData);
+		for (String translation : translations) {
+			int sep = translation.indexOf(':');
+			if (sep <= 0) {
+				continue;
+			}
+			String tid = translation.substring(0, sep);
+			String keyHex = translation.substring(sep + 1);
+			if (Algorithms.isEmpty(tid) || Algorithms.isEmpty(keyHex)) {
+				continue;
+			}
+			String encryptedData = LiveTrackCrypto.encrypt(keyHex, data);
+			if (encryptedData == null) {
+				log.error("Failed to encrypt live track location");
+				continue;
+			}
+			urls.put(translation, "https://" + host + "/userdata/translation/msg?deviceid=" + encode(deviceId)
+					+ "&accessToken=" + encode(accessToken) + "&encryptedData=" + encode(encryptedData)
+					+ "&translationId=" + encode(tid));
+		}
+		return urls;
 	}
 
 	private static String encode(@NonNull String value) {

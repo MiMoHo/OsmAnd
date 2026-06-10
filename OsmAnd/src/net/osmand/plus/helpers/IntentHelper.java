@@ -168,7 +168,10 @@ public class IntentHelper {
 				String key = data.getFragment();
 				String tid = data.getQueryParameter("tid");
 				if (key != null && key.matches("[0-9a-f]{64}") && tid != null && tid.matches("[0-9a-f]{16}")) {
-					settings.LIVE_MONITORING_TRANSLATION_KEY.set(key);
+					String translation = tid + ":" + key;
+					if (!settings.LIVE_MONITORING_TRANSLATIONS.containsValue(translation)) {
+						settings.LIVE_MONITORING_TRANSLATIONS.addValue(translation);
+					}
 					settings.LIVE_MONITORING_URL.set(data.getHost());
 					settings.LIVE_MONITORING.set(true);
 					requestShareAccess(data.getHost(), tid);
@@ -925,7 +928,7 @@ public class IntentHelper {
 	}
 
 	private boolean isOsmAndSite(@NonNull Uri uri) {
-		return isHttpOrHttpsScheme(uri) && isOsmAndHost(uri);
+		return isHttpOrHttpsScheme(uri) && isOsmAndHost(uri.getHost());
 	}
 
 	private boolean isHttpOrHttpsScheme(@NonNull Uri uri) {
@@ -933,8 +936,7 @@ public class IntentHelper {
 		return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
 	}
 
-	private boolean isOsmAndHost(@NonNull Uri uri) {
-		String host = uri.getHost();
+	public static boolean isOsmAndHost(@Nullable String host) {
 		if (host == null) {
 			return false;
 		}
