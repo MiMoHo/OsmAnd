@@ -38,12 +38,9 @@ public class CommonWords {
 		}
 	}
 	
-	private static void addTopFrequentManually(String string) {
-		// add to common for now as to make it top priority to exclude (doesn't affect index as non present in OSM) 
-		addCommon(string);
+	private static void addFrequentAbbrevation(String string) {
+		addFrequent(string);
 	}
-	
-
 	public static boolean isNumber2Letters(String name) {
 		return !name.isEmpty() && Character.isDigit(name.charAt(0)) && letters(name) < 2;
 	}
@@ -121,7 +118,7 @@ public class CommonWords {
 		return count;
 	}
 
-	private static void addAbbrevations() {
+	private static void addAbbrevationsToCommon() {
 		Map<String, String> abbreviations = Abbreviations.getAbbreviations();
 		Iterator<Entry<String, String>> it = abbreviations.entrySet().iterator();
 		while (it.hasNext()) {
@@ -180,30 +177,51 @@ public class CommonWords {
 	}
 	
 	static {
-		addManualFrequentWords(); // for now is common
 		// Push higher than roads to avoid problem with "Drive A 21"
 		addCommon(NUMBER_WITH_LESS_THAN_2_LETTERS);
 		addCalculatedCommonWords();
-		addAbbrevations();
-		addRegionNames(); // add regions names and region abbreviations
+		addAbbrevationsToCommon(); // common words
+		
+		addManualAbbrevationsToFrequent();
+		addRegionNames(); // to be deleted
 		addCalculatedFrequentWords();
 	}
 		
-	private static void addManualFrequentWords() {
-		// manually maintained - list of common abbrevations not enough present in OSM
-		addTopFrequentManually("mc");
-		addTopFrequentManually("ct");
-		addTopFrequentManually("дер");
-		addTopFrequentManually("пос");
-
-		// standard US abbrevations;
-		addTopFrequentManually("ave");
-		addTopFrequentManually("dr");
-		addTopFrequentManually("st");
-		addTopFrequentManually("ln"); 
-		addTopFrequentManually("rd");
-		addTopFrequentManually("blvd"); 
-		addTopFrequentManually("hwy"); 
+	private static void addManualAbbrevationsToFrequent() {
+		// manually maintained - could be "mc" or "mc." 
+		// some of them present in OSM some not
+		addFrequentAbbrevation("mc");
+		addFrequentAbbrevation("ct");
+		addFrequentAbbrevation("дер");
+		addFrequentAbbrevation("пос");
+		// present already in stats
+		addFrequentAbbrevation("e");
+		addFrequentAbbrevation("g");
+		addFrequentAbbrevation("b");
+		addFrequentAbbrevation("f");
+		addFrequentAbbrevation("jl");
+		addFrequentAbbrevation("sk");
+		addFrequentAbbrevation("w");
+		addFrequentAbbrevation("a");
+		addFrequentAbbrevation("k");
+		addFrequentAbbrevation("r");
+		addFrequentAbbrevation("h");
+		addFrequentAbbrevation("m");
+		addFrequentAbbrevation("c");
+		addFrequentAbbrevation("r");
+		addFrequentAbbrevation("e");
+		addFrequentAbbrevation("dr");
+		addFrequentAbbrevation("j");
+		addFrequentAbbrevation("s");
+		addFrequentAbbrevation("f");
+		addFrequentAbbrevation("fe");
+		addFrequentAbbrevation("c");
+		addFrequentAbbrevation("av");
+		addFrequentAbbrevation("un");
+		addFrequentAbbrevation("str");
+		addFrequentAbbrevation("ул");
+		addFrequentAbbrevation("to");
+		addFrequentAbbrevation("m");
 	}
 
 	
