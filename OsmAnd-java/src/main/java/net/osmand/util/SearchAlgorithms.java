@@ -486,22 +486,26 @@ public class SearchAlgorithms {
      * Cross-category suffix policy for compact complex tokens.
      * <p>
      * Current production policy is intentionally strict:
-     * - USUAL prefixes include other USUAL tokens and NUMBER tokens only.
-     * - FREQUENT prefixes include other FREQUENT tokens, COMMON tokens, and NUMBER tokens only.
+     * - USUAL prefixes include NUMBER tokens only.
+     * - FREQUENT prefixes include other FREQUENT tokens, COMMON tokens, and NUMBER tokens.
      * <p>
      * After index-size/search-quality testing, cross-category suffixes can be enabled here without changing
      * writer call sites:
+     * - Set INCLUDE_USUAL_SUFFIXES_FOR_USUAL_PREFIX to true to let USUAL prefixes also match other USUAL tokens.
      * - Set INCLUDE_FREQUENT_SUFFIXES_FOR_USUAL_PREFIX to true to let USUAL prefixes also match FREQUENT tokens.
      * - Set INCLUDE_COMMON_SUFFIXES_FOR_USUAL_PREFIX to true to let USUAL prefixes also match COMMON tokens.
      * - Set INCLUDE_USUAL_SUFFIXES_FOR_FREQUENT_PREFIX to true to let FREQUENT prefixes also match USUAL tokens.
+     * - Set INCLUDE_FREQUENT_SUFFIXES_FOR_FREQUENT_PREFIX to false to test FREQUENT prefixes without other FREQUENT tokens.
      * <p>
      * Keep these switches false by default until OBF size, dictionary hit rate, extraSuffix growth, and false-positive
      * search behavior are measured on representative maps. NUMBER suffixes are not controlled by these switches:
      * they remain included for both USUAL and FREQUENT prefixes.
      */
+    private static final boolean INCLUDE_USUAL_SUFFIXES_FOR_USUAL_PREFIX = false;
     private static final boolean INCLUDE_FREQUENT_SUFFIXES_FOR_USUAL_PREFIX = false;
     private static final boolean INCLUDE_COMMON_SUFFIXES_FOR_USUAL_PREFIX = false;
     private static final boolean INCLUDE_USUAL_SUFFIXES_FOR_FREQUENT_PREFIX = false;
+    private static final boolean INCLUDE_FREQUENT_SUFFIXES_FOR_FREQUENT_PREFIX = true;
 
     public static Set<String> nameIndexPrepareComplexPrefixes(List<String> tokens, boolean allowNumberPrefixes) {
         List<String> uniqueTokens = new ArrayList<>(new LinkedHashSet<>(tokens));
@@ -553,7 +557,9 @@ public class SearchAlgorithms {
         }
         List<String> suffixes = new ArrayList<>();
         if (usual.contains(prefix)) {
-            suffixes.addAll(usual);
+            if (INCLUDE_USUAL_SUFFIXES_FOR_USUAL_PREFIX) {
+                suffixes.addAll(usual);
+            }
             if (INCLUDE_FREQUENT_SUFFIXES_FOR_USUAL_PREFIX) {
                 suffixes.addAll(frequent);
             }
@@ -565,7 +571,9 @@ public class SearchAlgorithms {
             if (INCLUDE_USUAL_SUFFIXES_FOR_FREQUENT_PREFIX) {
                 suffixes.addAll(usual);
             }
-            suffixes.addAll(frequent);
+            if (INCLUDE_FREQUENT_SUFFIXES_FOR_FREQUENT_PREFIX) {
+                suffixes.addAll(frequent);
+            }
             suffixes.addAll(common);
             suffixes.addAll(numbers);
         } else {
