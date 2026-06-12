@@ -502,8 +502,8 @@ public class SearchAlgorithms {
      * they remain included for both USUAL and FREQUENT prefixes.
      */
     private static final boolean INCLUDE_USUAL_SUFFIXES_FOR_USUAL_PREFIX = false;
-    private static final boolean INCLUDE_FREQUENT_SUFFIXES_FOR_USUAL_PREFIX = false;
-    private static final boolean INCLUDE_COMMON_SUFFIXES_FOR_USUAL_PREFIX = false;
+    private static final boolean INCLUDE_FREQUENT_SUFFIXES_FOR_USUAL_PREFIX = true;
+    private static final boolean INCLUDE_COMMON_SUFFIXES_FOR_USUAL_PREFIX = true;
     private static final boolean INCLUDE_USUAL_SUFFIXES_FOR_FREQUENT_PREFIX = false;
     private static final boolean INCLUDE_FREQUENT_SUFFIXES_FOR_FREQUENT_PREFIX = true;
 
