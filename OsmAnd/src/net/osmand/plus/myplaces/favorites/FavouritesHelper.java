@@ -47,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -257,8 +258,15 @@ public class FavouritesHelper {
 	}
 
 	public void loadFavorites() {
+		PendingFavoriteDeletions pendingDeletions = fileHelper.loadPendingDeletions();
+
 		Map<String, FavoriteGroup> groups = fileHelper.loadInternalGroups();
 		Map<String, FavoriteGroup> extGroups = fileHelper.loadExternalGroups();
+
+		if (!pendingDeletions.isEmpty()) {
+			filterPendingDeletions(groups, pendingDeletions);
+			filterPendingDeletions(extGroups, pendingDeletions);
+		}
 
 		boolean changed = merge(extGroups, groups);
 
@@ -272,7 +280,8 @@ public class FavouritesHelper {
 		File legacyExternalFile = fileHelper.getLegacyExternalFile();
 		// Force save favorites to file if internals are different from externals
 		// or no favorites created yet or legacy favourites.gpx present
-		if (changed || !fileHelper.getExternalDir().exists() || legacyExternalFile.exists()) {
+		if (changed || !fileHelper.getExternalDir().exists()
+				|| legacyExternalFile.exists() || !pendingDeletions.isEmpty()) {
 			saveCurrentPointsIntoFile(false);
 			// Delete legacy favourites.gpx if exists
 			if (legacyExternalFile.exists()) {
@@ -283,6 +292,22 @@ public class FavouritesHelper {
 		}
 		favoritesLoaded = true;
 		notifyListeners();
+	}
+
+	private void filterPendingDeletions(@NonNull Map<String, FavoriteGroup> groups,
+	                                    @NonNull PendingFavoriteDeletions pendingDeletions) {
+		Set<String> pendingGroupDeletions = pendingDeletions.getGroupNames();
+		Set<String> pendingPointDeletions = pendingDeletions.getPointKeys();
+
+		Iterator<Map.Entry<String, FavoriteGroup>> it = groups.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry<String, FavoriteGroup> entry = it.next();
+			if (pendingGroupDeletions.contains(entry.getKey())) {
+				it.remove();
+			} else {
+				entry.getValue().getPoints().removeIf(point -> pendingPointDeletions.contains(point.getKey()));
+			}
+		}
 	}
 
 	public long getLastModifiedTime() {
@@ -450,6 +475,16 @@ public class FavouritesHelper {
 			favoriteGroups = tmpFavoriteGroups;
 			invalidateFavoriteFolderCache();
 		}
+		if (!Algorithms.isEmpty(favoritesSelected)) {
+			for (FavouritePoint point : favoritesSelected) {
+				fileHelper.savePendingPointDeletion(point.getKey());
+			}
+		}
+		if (!Algorithms.isEmpty(groupsToDelete)) {
+			for (FavoriteGroup g : groupsToDelete) {
+				fileHelper.savePendingGroupDeletion(g.getName());
+			}
+		}
 		saveCurrentPointsIntoFile(true);
 	}
 
@@ -471,6 +506,9 @@ public class FavouritesHelper {
 			invalidateFavoriteFolderCache();
 		}
 		if (saveImmediately) {
+			if (p != null) {
+				fileHelper.savePendingPointDeletion(p.getKey());
+			}
 			saveCurrentPointsIntoFile(true);
 		}
 		return true;
@@ -1198,7 +1236,6 @@ public class FavouritesHelper {
 			invalidateFavoriteFolderCache();
 		}
 		updateGroupAppearance(favoriteGroup, pointsGroup);
-
 		return favoriteGroup;
 	}
 

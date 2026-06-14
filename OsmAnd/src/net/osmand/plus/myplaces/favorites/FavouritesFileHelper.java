@@ -4,6 +4,7 @@ import static net.osmand.IndexConstants.BACKUP_INDEX_DIR;
 import static net.osmand.IndexConstants.FAVORITES_INDEX_DIR;
 import static net.osmand.IndexConstants.GPX_FILE_EXT;
 import static net.osmand.IndexConstants.ZIP_EXT;
+import static net.osmand.shared.IndexConstants.TMP_FILE_EXT;
 import static net.osmand.shared.gpx.GpxFile.XML_COLON;
 
 import androidx.annotation.NonNull;
@@ -24,7 +25,12 @@ import net.osmand.util.Algorithms;
 
 import org.apache.commons.logging.Log;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -46,6 +52,8 @@ public class FavouritesFileHelper {
 	public static final String BAK_FILE_SUFFIX = "_bak";
 
 	public static final String SUBFOLDER_PLACEHOLDER = "_%_";
+
+	private static final String PENDING_DELETIONS_SUFFIX = "_deletions";
 
 	private final OsmandApplication app;
 	private final ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
@@ -79,6 +87,58 @@ public class FavouritesFileHelper {
 			favFolder.mkdir();
 		}
 		return favFolder;
+	}
+
+	@NonNull
+	private File getPendingDeletionsFile() {
+		return app.getFileStreamPath(FAV_FILE_PREFIX + PENDING_DELETIONS_SUFFIX + TMP_FILE_EXT);
+	}
+
+	public void savePendingPointDeletion(@NonNull String pointKey) {
+		appendPendingDeletionLine(PendingFavoriteDeletions.serializePoint(pointKey));
+	}
+
+	public void savePendingGroupDeletion(@NonNull String groupName) {
+		appendPendingDeletionLine(PendingFavoriteDeletions.serializeGroup(groupName));
+	}
+
+	@NonNull
+	public PendingFavoriteDeletions loadPendingDeletions() {
+		PendingFavoriteDeletions result = new PendingFavoriteDeletions();
+		File file = getPendingDeletionsFile();
+		if (!file.exists()) {
+			return result;
+		}
+		try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+			String line;
+			while ((line = br.readLine()) != null) {
+				String trimmed = line.trim();
+				if (!trimmed.isEmpty()) {
+					result.deserializeLine(trimmed);
+				}
+			}
+		} catch (IOException e) {
+			log.error("loadPendingDeletions failed", e);
+		}
+		return result;
+	}
+
+	public void clearPendingDeletions() {
+		File file = getPendingDeletionsFile();
+		if (file.exists() && !file.delete()) {
+			log.warn("clearPendingDeletions: failed to delete " + file.getAbsolutePath());
+		}
+	}
+
+	private void appendPendingDeletionLine(@NonNull String line) {
+		File file = getPendingDeletionsFile();
+		try (BufferedWriter bw = new BufferedWriter(new FileWriter(file, true))) {
+			bw.write(line);
+			bw.newLine();
+			bw.flush();
+		} catch (IOException e) {
+			log.error("appendLine failed: " + line, e);
+		}
 	}
 
 	@NonNull
@@ -248,13 +308,9 @@ public class FavouritesFileHelper {
 
 	private void clearOldBackups(@NonNull List<File> files, int maxCount) {
 		if (files.size() >= maxCount) {
-			// sort in order from oldest to newest
-			Collections.sort(files, (f1, f2) -> {
-				return Long.compare(f2.lastModified(), f1.lastModified());
-			});
+			Collections.sort(files, (f1, f2) -> Long.compare(f2.lastModified(), f1.lastModified()));
 			for (int i = files.size(); i > maxCount; --i) {
-				File oldest = files.get(i - 1);
-				oldest.delete();
+				files.get(i - 1).delete();
 			}
 		}
 	}

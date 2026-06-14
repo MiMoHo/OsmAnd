@@ -90,6 +90,8 @@ public class SaveFavoritesTask extends AsyncTask<Void, String, Void> {
 			// Save groups to backup file
 			// backup(groups, getBackupFile()); // creates new, but does not zip
 			backup(helper.getBackupFile(), internalFile); // simply backs up internal file, hence internal name is reflected in gpx <name> metadata
+			// All writes succeeded — safe to clear pending deletions tombstone
+			helper.clearPendingDeletions();
 		} catch (Exception e) {
 			log.error(e.getMessage(), e);
 		}
