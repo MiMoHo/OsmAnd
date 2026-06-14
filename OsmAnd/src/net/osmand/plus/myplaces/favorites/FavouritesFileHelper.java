@@ -308,9 +308,13 @@ public class FavouritesFileHelper {
 
 	private void clearOldBackups(@NonNull List<File> files, int maxCount) {
 		if (files.size() >= maxCount) {
-			Collections.sort(files, (f1, f2) -> Long.compare(f2.lastModified(), f1.lastModified()));
+			// sort in order from oldest to newest
+			Collections.sort(files, (f1, f2) -> {
+				return Long.compare(f2.lastModified(), f1.lastModified());
+			});
 			for (int i = files.size(); i > maxCount; --i) {
-				files.get(i - 1).delete();
+				File oldest = files.get(i - 1);
+				oldest.delete();
 			}
 		}
 	}
