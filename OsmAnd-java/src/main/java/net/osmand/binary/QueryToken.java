@@ -22,6 +22,7 @@ public class QueryToken {
         private boolean passThrough;
         private List<String> legacyDictionary;
         private List<String> compactDictionary;
+        private boolean encodedCompactIndexes;
         private Set<String> querySuffixTokens;
 
         SuffixMask(Prefix prefix) {
@@ -41,11 +42,12 @@ public class QueryToken {
             legacyDictionary = suffixDictionary;
         }
 
-        void setCompactDictionary(List<String> suffixDictionary) {
+        void setCompactDictionary(List<String> suffixDictionary, boolean encodedCompactIndexes) {
             // Compact OBFs reuse one dictionary for two suffix kinds: partial suffixes and separated
             // suffixes marked by a leading space. The query side removes the matched prefix token once,
             // leaving only separated query tokens that must be present in the atom suffix set.
             compactDictionary = suffixDictionary == null ? Collections.emptyList() : suffixDictionary;
+            this.encodedCompactIndexes = encodedCompactIndexes;
             if (querySuffixTokens == null) {
                 querySuffixTokens = new LinkedHashSet<>();
                 boolean prefixTokenRemoved = false;
@@ -64,6 +66,9 @@ public class QueryToken {
         }
 
         boolean isCompactMatched(List<Integer> suffixIndexes, String extraSuffix) {
+            if (!encodedCompactIndexes) {
+                return isLegacyCompactMatched(suffixIndexes, extraSuffix);
+            }
             // Compact matching has two independent checks:
             // 1. the trie key must represent a valid full prefix token, either directly or via a partial suffix;
             // 2. every remaining query token must match a separated suffix from dictionary/index/extraSuffix.
@@ -72,13 +77,13 @@ public class QueryToken {
                     || CollatorStringMatcher.cmatches(collator, prefix.key(), query, matcherMode);
             if (suffixIndexes != null) {
                 for (int suffixIndex : suffixIndexes) {
-                    if ((suffixIndex & 1) == 1) {
+                    if (encodedCompactIndexes && (suffixIndex & 1) == 1) {
                         // Odd values inline pure decimal separated suffixes and never consume dictionary slots.
                         atomSuffixes.add(String.valueOf(suffixIndex >>> 1));
                     } else {
-                        // Even values reference the shared compact dictionary. A leading space marks a
-                        // separated suffix; no leading space means a partial suffix for the current trie key.
-                        int dictionaryIndex = suffixIndex >>> 1;
+                        // New OBFs encode dictionary refs as even values; legacy compact OBFs stored raw
+                        // dictionary indexes, so absence of the commonStats marker keeps old indexes aligned.
+                        int dictionaryIndex = encodedCompactIndexes ? suffixIndex >>> 1 : suffixIndex;
                         if (dictionaryIndex >= 0 && dictionaryIndex < compactDictionary.size()) {
                             String suffix = compactDictionary.get(dictionaryIndex);
                             if (suffix.startsWith(" ")) {
@@ -126,6 +131,32 @@ public class QueryToken {
                 }
             }
             return true;
+        }
+
+        private boolean isLegacyCompactMatched(List<Integer> suffixIndexes, String extraSuffix) {
+            // Legacy compact OBFs stored raw dictionary indexes and only used them as partial-suffix
+            // completions for the current trie key. Separated word suffixes are a new encoded format.
+            if (query == null || prefix.key() == null
+                    || CollatorStringMatcher.cmatches(collator, prefix.key(), query, matcherMode)) {
+                return true;
+            }
+            if (suffixIndexes != null) {
+                for (int dictionaryIndex : suffixIndexes) {
+                    if (dictionaryIndex >= 0 && dictionaryIndex < compactDictionary.size()
+                            && CollatorStringMatcher.cmatches(collator,
+                            prefix.key() + compactDictionary.get(dictionaryIndex), query, matcherMode)) {
+                        return true;
+                    }
+                }
+            }
+            if (extraSuffix != null && !extraSuffix.isEmpty()) {
+                for (String suffix : extraSuffix.split(" ")) {
+                    if (!suffix.isEmpty() && CollatorStringMatcher.cmatches(collator, prefix.key() + suffix, query, matcherMode)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
 
         private List<String> splitExtraSuffixes(String extraSuffix) {

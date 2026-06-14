@@ -770,7 +770,7 @@ public class BinaryMapAddressReaderAdapter {
 						} else if (stag == AddressNameIndexData.ATOM_FIELD_NUMBER) {
 							if (!suffixDictionaryInitialized && suffixMask != null) {
 								suffixMask.setDictionary(suffixDictionary);
-								suffixMask.setCompactDictionary(suffixDictionary);
+								suffixMask.setCompactDictionary(suffixDictionary, commonStatsValues != null);
 								suffixDictionaryInitialized = true;
 							}
 							long slen = codedIS.readRawVarint32();
@@ -907,24 +907,21 @@ public class BinaryMapAddressReaderAdapter {
 
 	private void addCommonSuffixDictionaryEntry(List<String> suffixDictionary, List<String> commonStatsValues,
 			QueryToken.Prefix prefix, int commonRef) {
-		if (commonStatsValues == null || prefix == null || prefix.key() == null) {
+		if (commonStatsValues == null) {
 			// Preserve united-dictionary positions even for malformed common refs.
 			suffixDictionary.add("\u0000");
 			return;
 		}
-		int commonIndex = commonRef >>> 1;
-		if (commonIndex < 0 || commonIndex >= commonStatsValues.size()) {
+        if (commonRef < 0 || commonRef >= commonStatsValues.size()) {
 			// Keep one slot per suffixesCommonDictionary entry.
 			suffixDictionary.add("\u0000");
 			return;
 		}
-		String token = commonStatsValues.get(commonIndex);
-		if ((commonRef & 1) == 1) {
+		String token = commonStatsValues.get(commonRef);
+		if (token != null) {
 			suffixDictionary.add(" " + token);
-		} else if (token != null && token.startsWith(prefix.key())) {
-			suffixDictionary.add(token.substring(prefix.key().length()));
 		} else {
-			// Invalid partial refs must occupy their slot so later indexes stay aligned.
+			// Invalid refs must occupy their slot so later indexes stay aligned.
 			suffixDictionary.add("\u0000");
 		}
 	}

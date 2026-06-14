@@ -416,10 +416,7 @@ public class SearchAlgorithms {
         public final Map<T, CompactSuffixes> compactSuffixes = new LinkedHashMap<>();
     }
 
-    private record CommonSuffixCandidate(String suffix, String fullToken, int kind) {}
-
-    private static final int COMMON_SUFFIX_KIND_PARTIAL = 0;
-    private static final int COMMON_SUFFIX_KIND_SEPARATED = 1;
+    private record CommonSuffixCandidate(String fullToken) {}
 
     public static <T> CommonIndexedTokens nameIndexBuildCommonIndexedTokens(Map<String, ? extends Collection<T>> objectsByPrefix,
             Function<T, Collection<String>> partialTokenSupplier, Function<T, Collection<String>> separatedTokenSupplier) {
@@ -499,7 +496,7 @@ public class SearchAlgorithms {
                 fullToken = prefix + suffix;
             }
             if (isCommonIndexedToken(fullToken)) {
-                candidates.add(new CommonSuffixCandidate(suffix, fullToken, COMMON_SUFFIX_KIND_PARTIAL));
+                candidates.add(new CommonSuffixCandidate(fullToken));
             }
         }
         for (String token : separatedTokenSupplier.apply(prefix, object)) {
@@ -507,7 +504,7 @@ public class SearchAlgorithms {
                 continue;
             }
             if (isCommonIndexedToken(token)) {
-                candidates.add(new CommonSuffixCandidate(" " + token, token, COMMON_SUFFIX_KIND_SEPARATED));
+                candidates.add(new CommonSuffixCandidate(token));
             }
         }
         return candidates;
@@ -537,6 +534,7 @@ public class SearchAlgorithms {
         for (T object : objects) {
             Set<String> objectSuffixes = new LinkedHashSet<>();
             Set<Integer> objectCommonRefs = new LinkedHashSet<>();
+            Set<Integer> objectNonindexedCommonRefs = new LinkedHashSet<>();
             suffixesByObject.put(object, objectSuffixes);
             commonRefsByObject.put(object, objectCommonRefs);
             for (String token : partialTokenSupplier.apply(object)) {
@@ -553,11 +551,12 @@ public class SearchAlgorithms {
                     fullToken = prefix + suffix;
                 }
                 if (suffix != null) {
+                    // suffixesCommonDictionary stores separated suffix-token refs only; partial/full-token
+                    // suffixes stay in the local dictionary or extraSuffix even when their full token is common.
+                    objectSuffixes.add(suffix);
                     Integer commonIndex = commonTokens == null ? null : commonTokens.tokenToIndex.get(fullToken);
-                    if (commonIndex == null) {
-                        objectSuffixes.add(suffix);
-                    } else {
-                        objectCommonRefs.add((commonIndex << 1) | COMMON_SUFFIX_KIND_PARTIAL);
+                    if (commonIndex != null) {
+                        objectNonindexedCommonRefs.add(commonIndex);
                     }
                 }
             }
@@ -569,7 +568,13 @@ public class SearchAlgorithms {
                 if (commonIndex == null) {
                     objectSuffixes.add(" " + token);
                 } else {
-                    objectCommonRefs.add((commonIndex << 1) | COMMON_SUFFIX_KIND_SEPARATED);
+                    objectCommonRefs.add(commonIndex);
+                    objectNonindexedCommonRefs.remove(commonIndex);
+                }
+            }
+            if (commonTokens != null) {
+                for (int commonIndex : objectNonindexedCommonRefs) {
+                    commonTokens.nonindexed.set(commonIndex, commonTokens.nonindexed.get(commonIndex) + 1);
                 }
             }
             for (String suffix : objectSuffixes) {
