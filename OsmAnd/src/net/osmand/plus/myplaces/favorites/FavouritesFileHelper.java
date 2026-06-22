@@ -12,6 +12,7 @@ import androidx.annotation.Nullable;
 
 import net.osmand.CallbackWithObject;
 import net.osmand.PlatformUtil;
+import net.osmand.data.FavouritePoint;
 import net.osmand.plus.OsmAndTaskManager;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.Version;
@@ -99,12 +100,38 @@ public class FavouritesFileHelper {
 		return app.getFileStreamPath(FAV_FILE_PREFIX + PENDING_DELETIONS_SUFFIX + TMP_FILE_EXT);
 	}
 
-	public void savePendingPointDeletion(@NonNull String pointKey) {
-		appendPendingDeletionLine(PendingFavoriteDeletions.serializePoint(pointKey));
+	public void savePendingDeletions(@Nullable Collection<FavouritePoint> points,
+	                                 @Nullable Collection<FavoriteGroup> groups) {
+		List<String> lines = new ArrayList<>();
+
+		// Serialize all points and groups into a single list in memory
+		if (points != null) {
+			for (FavouritePoint p : points) {
+				lines.add(PendingFavoriteDeletions.serializePoint(p.getKey()));
+			}
+		}
+		if (groups != null) {
+			for (FavoriteGroup g : groups) {
+				lines.add(PendingFavoriteDeletions.serializeGroup(g.getName()));
+			}
+		}
+
+		if (!lines.isEmpty()) {
+			appendPendingDeletionLines(lines);
+		}
 	}
 
-	public void savePendingGroupDeletion(@NonNull String groupName) {
-		appendPendingDeletionLine(PendingFavoriteDeletions.serializeGroup(groupName));
+	private void appendPendingDeletionLines(@NonNull Collection<String> lines) {
+		File file = getPendingDeletionsFile();
+		try (BufferedWriter bw = new BufferedWriter(new FileWriter(file, true))) {
+			for (String line : lines) {
+				bw.write(line);
+				bw.newLine();
+			}
+			bw.flush();
+		} catch (IOException e) {
+			log.error("appendPendingDeletionLines failed", e);
+		}
 	}
 
 	@NonNull

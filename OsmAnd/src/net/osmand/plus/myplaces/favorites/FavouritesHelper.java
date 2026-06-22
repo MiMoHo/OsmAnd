@@ -476,15 +476,8 @@ public class FavouritesHelper {
 			favoriteGroups = tmpFavoriteGroups;
 			invalidateFavoriteFolderCache();
 		}
-		if (!Algorithms.isEmpty(favoritesSelected)) {
-			for (FavouritePoint point : favoritesSelected) {
-				fileHelper.savePendingPointDeletion(point.getKey());
-			}
-		}
-		if (!Algorithms.isEmpty(groupsToDelete)) {
-			for (FavoriteGroup g : groupsToDelete) {
-				fileHelper.savePendingGroupDeletion(g.getName());
-			}
+		if (!Algorithms.isEmpty(favoritesSelected) || !Algorithms.isEmpty(groupsToDelete)) {
+			fileHelper.savePendingDeletions(favoritesSelected, groupsToDelete);
 		}
 		saveCurrentPointsIntoFile(true);
 	}
@@ -508,7 +501,7 @@ public class FavouritesHelper {
 		}
 		if (saveImmediately) {
 			if (p != null) {
-				fileHelper.savePendingPointDeletion(p.getKey());
+				fileHelper.savePendingDeletions(Collections.singleton(p), null);
 			}
 			saveCurrentPointsIntoFile(true);
 		}
