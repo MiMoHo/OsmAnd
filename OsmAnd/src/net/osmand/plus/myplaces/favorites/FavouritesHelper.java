@@ -62,6 +62,7 @@ public class FavouritesHelper {
 	private final OsmandApplication app;
 	private final FavouritesFileHelper fileHelper;
 	private final FavoriteSortModesHelper favoriteSortModesHelper;
+	private final SaveFavoritesListener saveFavoritesListener = this::onSavingFavoritesFinished;
 
 	private List<FavoriteGroup> favoriteGroups = new ArrayList<>();
 	private Map<String, FavoriteGroup> flatGroups = new LinkedHashMap<>();
@@ -782,12 +783,11 @@ public class FavouritesHelper {
 
 	private void saveGroupsInternal(@NonNull List<FavoriteGroup> groups, boolean saveAllGroups, boolean async) {
 		updateLastModifiedTime();
-		SaveFavoritesListener listener = this::onSavingFavoritesFinished;
 
 		if (async) {
-			fileHelper.saveFavoritesIntoFile(groups, saveAllGroups, listener);
+			fileHelper.saveFavoritesIntoFile(groups, saveAllGroups, saveFavoritesListener);
 		} else {
-			fileHelper.saveFavoritesIntoFileSync(groups, saveAllGroups, listener);
+			fileHelper.saveFavoritesIntoFileSync(groups, saveAllGroups, saveFavoritesListener);
 		}
 	}
 

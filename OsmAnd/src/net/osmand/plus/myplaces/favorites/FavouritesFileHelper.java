@@ -58,6 +58,11 @@ public class FavouritesFileHelper {
 	private final OsmandApplication app;
 	private final ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
 
+	// Lock object to synchronize access to the pending task state
+	private final Object taskLock = new Object();
+	@Nullable
+	private SaveFavoritesTask pendingSaveTask;
+
 	protected FavouritesFileHelper(@NonNull OsmandApplication app) {
 		this.app = app;
 	}
@@ -195,18 +200,43 @@ public class FavouritesFileHelper {
 	}
 
 	public void saveFavoritesIntoFile(@NonNull List<FavoriteGroup> groups, boolean saveAllGroups,
-			@Nullable SaveFavoritesListener listener) {
-		SaveFavoritesTask task = new SaveFavoritesTask(this, groups, saveAllGroups, listener);
-		OsmAndTaskManager.executeTask(task, singleThreadExecutor);
+	                                  @Nullable SaveFavoritesListener listener) {
+		SaveFavoritesParams newParams = new SaveFavoritesParams(
+				groups, saveAllGroups,
+				listener != null ? Collections.singleton(listener) : Collections.emptyList());
+
+		// Ensure the read-merge-cancel-write sequence is completely atomic
+		synchronized (taskLock) {
+			if (pendingSaveTask != null) {
+				newParams = pendingSaveTask.getParams().merge(newParams);
+				pendingSaveTask.cancel(false);
+			}
+
+			SaveFavoritesTask task = new SaveFavoritesTask(this, newParams);
+			pendingSaveTask = task;
+			OsmAndTaskManager.executeTask(task, singleThreadExecutor);
+		}
 	}
 
 	public void saveFavoritesIntoFileSync(@NonNull List<FavoriteGroup> groups, boolean saveAllGroups,
-			@Nullable SaveFavoritesListener listener) {
-		SaveFavoritesTask task = new SaveFavoritesTask(this, groups, saveAllGroups, listener);
+	                                      @Nullable SaveFavoritesListener listener) {
+		SaveFavoritesParams params = new SaveFavoritesParams(
+				groups, saveAllGroups,
+				listener != null ? Collections.singleton(listener) : Collections.emptyList());
+		SaveFavoritesTask task = new SaveFavoritesTask(this, params);
 		try {
 			OsmAndTaskManager.executeTask(task, singleThreadExecutor).get();
 		} catch (ExecutionException | InterruptedException e) {
 			log.error(e);
+		}
+	}
+
+	void onSaveTaskFinished(@NonNull SaveFavoritesTask task) {
+		// Synchronize to safely clear the task without race conditions
+		synchronized (taskLock) {
+			if (pendingSaveTask == task) {
+				pendingSaveTask = null;
+			}
 		}
 	}
 
