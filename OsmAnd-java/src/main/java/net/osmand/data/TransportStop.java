@@ -13,6 +13,7 @@ public class TransportStop extends MapObject {
 
 	private static final int DELETED_STOP = -1;
 	public static final String MISSING_STOP_NAME = "#Missing Stop";
+	public static final String CONNECTED_PLATFORM_ID = "osmand:connected_platform_id";
 
 	private long[] referencesToRoutes = null;
 	private long[] deletedRoutesIds;
@@ -148,6 +149,10 @@ public class TransportStop extends MapObject {
 
 	public void setTransportStopAggregated(TransportStopAggregated stopAggregated) {
 		transportStopAggregated = stopAggregated;
+	}
+
+	public String getConnectedPlatformId() {
+		return getNamesMap(false).get(CONNECTED_PLATFORM_ID);
 	}
 
 	@Override

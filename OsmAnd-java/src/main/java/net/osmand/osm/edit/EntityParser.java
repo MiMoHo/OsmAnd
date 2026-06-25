@@ -21,6 +21,8 @@ import net.osmand.osm.edit.OSMSettings.OSMTagKey;
 import net.osmand.osm.edit.Relation.RelationMember;
 import net.osmand.util.Algorithms;
 
+import static net.osmand.data.TransportStop.CONNECTED_PLATFORM_ID;
+
 public class EntityParser {
 
 	public static void parseMapObject(MapObject mo, Entity e, Map<String, String> tags) {
@@ -73,6 +75,9 @@ public class EntityParser {
 		}
 		if (mo.getName().length() == 0) {
 			setNameFromBrand(mo, tags);
+		}
+		if (tags.get(CONNECTED_PLATFORM_ID) != null) {
+			mo.setName(CONNECTED_PLATFORM_ID, tags.get(CONNECTED_PLATFORM_ID));
 		}
 	}
 
