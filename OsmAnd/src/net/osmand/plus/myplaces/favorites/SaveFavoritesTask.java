@@ -71,27 +71,31 @@ public class SaveFavoritesTask extends AsyncTask<Void, String, Void> {
 			if (gpxFile.getError() == null) {
 				helper.collectFavoriteGroups(gpxFile, deletedGroups);
 			}
+			// Get all points from internal file to filter later
 			for (FavoriteGroup group : deletedGroups.values()) {
 				for (FavouritePoint point : group.getPoints()) {
 					deletedPoints.put(point.getKey(), point);
 				}
 			}
+			// Hold only deleted points in map
 			for (FavouritePoint point : getPointsFromGroups(groups)) {
 				deletedPoints.remove(point.getKey());
 			}
+			// Hold only deleted groups in map
 			for (FavoriteGroup group : groups) {
 				deletedGroups.remove(group.getName());
 			}
 
-			// The heaviest operation: skip if a newer task is already queued.
 			if (isCancelled()) {
 				return;
 			}
+			// Save groups to internal file. The heaviest operation
 			helper.saveFile(groups, internalFile);
 
 			if (isCancelled()) {
 				return;
 			}
+			// Save groups to external files
 			saveExternalFiles(groups, deletedPoints.keySet());
 
 			// All writes succeeded — safe to clear tombstone.
@@ -101,7 +105,9 @@ public class SaveFavoritesTask extends AsyncTask<Void, String, Void> {
 			if (isCancelled()) {
 				return;
 			}
-			backup(helper.getBackupFile(), internalFile);
+			// Save groups to backup file
+			// backup(groups, getBackupFile()); // creates new, but does not zip
+			backup(helper.getBackupFile(), internalFile); // simply backs up internal file, hence internal name is reflected in gpx <name> metadata
 
 		} catch (Exception e) {
 			log.error(e.getMessage(), e);
@@ -110,6 +116,8 @@ public class SaveFavoritesTask extends AsyncTask<Void, String, Void> {
 
 	private void saveSelectedGroupsOnly(@NonNull List<FavoriteGroup> groupsToSave) {
 		try {
+			// No need to touch internal file or backup
+			// Changes will be picked up during next loadFavorites()
 			for (FavoriteGroup group : groupsToSave) {
 				if (isCancelled()) {
 					return;
@@ -173,6 +181,7 @@ public class SaveFavoritesTask extends AsyncTask<Void, String, Void> {
 				return;
 			}
 			FavoriteGroup fileGroup = fileGroups.get(localGroup.getName());
+			// Collect non deleted points from external group
 			Map<String, FavouritePoint> all = new LinkedHashMap<>();
 			if (fileGroup != null) {
 				for (FavouritePoint point : fileGroup.getPoints()) {

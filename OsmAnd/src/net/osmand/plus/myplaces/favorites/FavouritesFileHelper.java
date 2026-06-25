@@ -162,17 +162,6 @@ public class FavouritesFileHelper {
 		}
 	}
 
-	private void appendPendingDeletionLine(@NonNull String line) {
-		File file = getPendingDeletionsFile();
-		try (BufferedWriter bw = new BufferedWriter(new FileWriter(file, true))) {
-			bw.write(line);
-			bw.newLine();
-			bw.flush();
-		} catch (IOException e) {
-			log.error("appendLine failed: " + line, e);
-		}
-	}
-
 	@NonNull
 	public Map<String, FavoriteGroup> loadInternalGroups() {
 		Map<String, FavoriteGroup> groups = new LinkedHashMap<>();
@@ -228,9 +217,7 @@ public class FavouritesFileHelper {
 
 	public void saveFavoritesIntoFile(@NonNull List<FavoriteGroup> groups, boolean saveAllGroups,
 	                                  @Nullable SaveFavoritesListener listener) {
-		SaveFavoritesParams newParams = new SaveFavoritesParams(
-				groups, saveAllGroups,
-				listener != null ? Collections.singleton(listener) : Collections.emptyList());
+		SaveFavoritesParams newParams = new SaveFavoritesParams(groups, saveAllGroups, listener);
 
 		// Ensure the read-merge-cancel-write sequence is completely atomic
 		synchronized (taskLock) {
@@ -247,9 +234,7 @@ public class FavouritesFileHelper {
 
 	public void saveFavoritesIntoFileSync(@NonNull List<FavoriteGroup> groups, boolean saveAllGroups,
 	                                      @Nullable SaveFavoritesListener listener) {
-		SaveFavoritesParams params = new SaveFavoritesParams(
-				groups, saveAllGroups,
-				listener != null ? Collections.singleton(listener) : Collections.emptyList());
+		SaveFavoritesParams params = new SaveFavoritesParams(groups, saveAllGroups, listener);
 		SaveFavoritesTask task = new SaveFavoritesTask(this, params);
 		try {
 			OsmAndTaskManager.executeTask(task, singleThreadExecutor).get();

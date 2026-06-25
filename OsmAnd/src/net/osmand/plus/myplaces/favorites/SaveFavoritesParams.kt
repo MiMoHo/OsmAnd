@@ -7,6 +7,13 @@ class SaveFavoritesParams(
 	val saveAllGroups: Boolean,
 	listeners: Collection<SaveFavoritesListener?>
 ) {
+
+	constructor(
+		groups: List<FavoriteGroup>,
+		saveAllGroups: Boolean,
+		listener: SaveFavoritesListener?
+	) : this(groups, saveAllGroups, listOfNotNull(listener))
+
 	val listeners: LinkedHashSet<SaveFavoritesListener> = listeners
 		.filterNotNullTo(LinkedHashSet())
 
