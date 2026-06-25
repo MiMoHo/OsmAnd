@@ -86,41 +86,49 @@ public class TransportStopHelper {
 		boolean isSubwayEntrance = "subway_entrance".equals(amenity.getSubType())
 				|| "public_transport_station".equals(amenity.getSubType());
 
-		LatLon loc = amenity.getLocation();
+		String amenityName = amenity.getName().toLowerCase();
+		String amenityId = amenity.getId().toString();
+		LatLon amenityLatlon = amenity.getLocation();
+
 		int radiusMeters = isSubwayEntrance ? SHOW_SUBWAY_STOPS_FROM_ENTRANCES_RADIUS_METERS : SHOW_STOPS_RADIUS_METERS;
-		List<TransportStop> transportStops = findTransportStopsAt(app, loc.getLatitude(), loc.getLongitude(), radiusMeters);
-		if (transportStops == null) {
+		List<TransportStop> transportStopsNearby = findTransportStopsAt(app, amenityLatlon.getLatitude(), amenityLatlon.getLongitude(), radiusMeters);
+		if (transportStopsNearby == null) {
 			return null;
 		}
-		sortTransportStops(loc, transportStops);
+		sortTransportStops(amenityLatlon, transportStopsNearby);
 
 		if (isSubwayEntrance) {
-			stopAggregated = processTransportStopsForAmenity(transportStops, amenity);
+			stopAggregated = processTransportStopsForAmenity(transportStopsNearby, amenity);
 		} else {
 			stopAggregated = new TransportStopAggregated();
 			stopAggregated.setAmenity(amenity);
-			TransportStop nearestStop = null;
-			String amenityName = amenity.getName().toLowerCase();
-			for (TransportStop stop : transportStops) {
+			TransportStop anchorStop = null;
+
+			for (TransportStop stop : transportStopsNearby) {
 				stop.setTransportStopAggregated(stopAggregated);
 				String stopName = stop.getName().toLowerCase();
 				String connectedPlatformId = stop.getConnectedPlatformId();
-				if (((stopName.contains(amenityName) || amenityName.contains(stopName))
-						&& MapUtils.getDistance(stop.getLocation(), loc) < MAX_DISTANCE_BETWEEN_AMENITY_AND_LOCAL_STOPS
-						&& (nearestStop == null
-						|| nearestStop.getLocation().equals(stop.getLocation())))
-						|| stop.getLocation().equals(loc)
-						|| (connectedPlatformId != null
-							&& (connectedPlatformId.equals(amenity.getId().toString())
-								|| (nearestStop != null && connectedPlatformId.equals(nearestStop.getId().toString()))))
-				) {
-					stopAggregated.addLocalTransportStop(stop);
-					if (nearestStop == null) {
-						nearestStop = stop;
+
+				boolean sameAmenityName = (stopName.contains(amenityName) || amenityName.contains(stopName));
+				boolean sameAmenityLocation = stop.getLocation().equals(amenityLatlon);
+				boolean closeToAmenityLocation = MapUtils.getDistance(stop.getLocation(), amenityLatlon) < MAX_DISTANCE_BETWEEN_AMENITY_AND_LOCAL_STOPS;
+				boolean sameAmenityPlatformId = connectedPlatformId != null && connectedPlatformId.toLowerCase().equals(amenityId);
+
+				if (anchorStop == null) {
+					if (sameAmenityLocation || sameAmenityPlatformId || (sameAmenityName && closeToAmenityLocation)) {
+						anchorStop = stop;
+						stopAggregated.addLocalTransportStop(stop);
+						continue;
 					}
 				} else {
-					stopAggregated.addNearbyTransportStop(stop);
+					boolean sameAnchorStopLocation = stop.getLocation().equals(anchorStop.getLocation());
+					boolean sameAnchorStopPlatformId = connectedPlatformId != null && connectedPlatformId.equals(anchorStop.getId().toString());
+					if (sameAmenityPlatformId || sameAnchorStopPlatformId || (sameAmenityName && sameAnchorStopLocation)) {
+						stopAggregated.addLocalTransportStop(stop);
+						continue;
+					}
 				}
+				stopAggregated.addNearbyTransportStop(stop);
 			}
 		}
 
