@@ -4,13 +4,14 @@ import net.osmand.shared.io.KFile
 import net.osmand.shared.io.SinkStringWriter
 import okio.IOException
 import okio.Sink
+import java.io.BufferedWriter
 import java.io.File
 import java.io.OutputStreamWriter
 import java.io.StringWriter
 
 actual class XmlSerializer actual constructor() {
 	private val serializer = org.kxml2.io.KXmlSerializer()
-	private var outputStream: OutputStreamWriter? = null
+	private var outputStream: BufferedWriter? = null
 	private var stringWriter: StringWriter? = null
 
 	@Throws(IllegalArgumentException::class, IllegalStateException::class)
@@ -32,7 +33,7 @@ actual class XmlSerializer actual constructor() {
 		val fout = File(file.absolutePath())
 		fout.parentFile?.mkdirs()
 
-		outputStream = OutputStreamWriter(fout.outputStream(), "UTF-8")
+		outputStream = BufferedWriter(OutputStreamWriter(fout.outputStream(), "UTF-8"), 1024)
 		serializer.setOutput(outputStream)
 	}
 
