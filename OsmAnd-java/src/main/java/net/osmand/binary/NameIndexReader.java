@@ -9,7 +9,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import gnu.trove.iterator.TLongIterator;
+import gnu.trove.list.array.TLongArrayList;
 import gnu.trove.map.hash.TLongObjectHashMap;
+import gnu.trove.set.hash.TLongHashSet;
+import net.osmand.Collator;
+import net.osmand.CollatorStringMatcher;
+import net.osmand.CollatorStringMatcher.StringMatcherMode;
+import net.osmand.OsmAndCollator;
 import net.osmand.binary.BinaryMapAddressReaderAdapter.AddressRegion;
 import net.osmand.binary.BinaryMapAddressReaderAdapter.CityBlocks;
 import net.osmand.binary.BinaryMapPoiReaderAdapter.PoiRegion;
@@ -24,17 +31,92 @@ import net.osmand.util.SearchAlgorithms;
 
 public class NameIndexReader {
 
+	public static final String CITY_AS_STREET_COMMON = "cityasstreetcommon";
+	
+	// read params
 	public final PoiRegion poiRegion;
 	public final AddressRegion addressRegion;
 	
+	// cache for queries 
+	private Map<String, TLongHashSet> matchedKeys = new HashMap<String, TLongHashSet>();
+	// cache for prefixes
 	private Map<Long, PrefixNameValue> indexByRef = new HashMap<>();
 	private long tablePointer;
 	
-	private SuffixesStat suffixesStat = new SuffixesStat();
-	private StreetsIndexStat streetsStat = new StreetsIndexStat();
-	private BoundariesIndexStat bndsStat = new BoundariesIndexStat();
+	// common words
 	private CommonIndexedStats commonStats;
 	private List<String> commonsList = new ArrayList<String>();
+	private Map<String, ValueFreq> commonStatsValues = null;
+	
+	// stats
+	private SuffixesStat suffixesStat;
+	private StreetsIndexStat streetsStat;
+	private BoundariesIndexStat bndsStat;
+	
+	NameIndexReaderQuery query = null; // read all
+	
+	public static class NameIndexReaderMatcher {
+
+		protected String queryAligned;
+		protected String queryIncomplete;
+		protected Collator collator;
+		
+		public NameIndexReaderMatcher(String query) {
+			queryAligned = CollatorStringMatcher.alignChars(query);
+			collator = OsmAndCollator.primaryCollator();
+			if (query.endsWith(CollatorStringMatcher.INCOMPLETE_DOT + "")) {
+				queryIncomplete = query.substring(0, query.length() - 1);
+			}
+		}
+		
+		public boolean matchKey(String key) {
+			String alignedKey = CollatorStringMatcher.alignChars(key);
+			return matchAlignedKey(alignedKey);
+		}
+
+		protected boolean matchAlignedKey(String alignedKey) {
+			// 1. simple match
+			boolean match = CollatorStringMatcher.cmatches(collator, queryAligned, alignedKey, StringMatcherMode.CHECK_ONLY_STARTS_WITH);
+			// 2. match 2-xx (key) -> 2 (query) - another solution number, NC-42 (key) -> NC (query) or 'NC 42' 2 tokens  
+			if (!match && alignedKey.indexOf('-') != -1) {
+				// check equals for any substring ('-' is space for collator) - mostly we interested in first part before '-' for equals
+				match = CollatorStringMatcher.cmatches(collator, alignedKey, queryAligned, StringMatcherMode.CHECK_EQUALS_FROM_SPACE);
+				// case data - '2-x...' query '2xyz', we check that user writes without space
+				if (!match) {
+					String alignedSingleWord = alignedKey.replace("-", "");
+					match = CollatorStringMatcher.cmatches(collator, queryAligned, alignedSingleWord, StringMatcherMode.CHECK_ONLY_STARTS_WITH);
+				}
+			}
+//			match = query.startsWith(key);
+			// 3. incomplete query match
+			if (!match && queryIncomplete != null) {
+				match = CollatorStringMatcher.cmatches(collator, queryIncomplete, alignedKey, StringMatcherMode.CHECK_ONLY_STARTS_WITH) ||
+						CollatorStringMatcher.cmatches(collator, alignedKey, queryIncomplete, StringMatcherMode.CHECK_ONLY_STARTS_WITH);
+//				match = key.startsWith(pr) || pr.startsWith(key);
+			}
+			return match;
+		}
+	}
+	
+	// Active query 
+	static class NameIndexReaderQuery {
+		String query;
+		TLongHashSet matchedKeys = new TLongHashSet();
+		NameIndexReaderMatcher matcher;
+		
+		public NameIndexReaderQuery(String query, NameIndexReaderMatcher matcher) {
+			this.query = query;
+			this.matcher = matcher;
+		}
+		
+		public void addMatchedKey(long shift) {
+			matchedKeys.add(shift);
+		}
+
+		public boolean matchKey(String key) {
+			return matcher.matchKey(key);
+		}
+	}
 	
 
 	public NameIndexReader(AddressRegion p) {
@@ -47,6 +129,10 @@ public class NameIndexReader {
 		this.addressRegion = null;
 	}
 
+	public boolean readAll() {
+		return query == null;
+	}
+	
 	public void setTablePointer(long totalBytesRead) {
 		this.tablePointer = totalBytesRead;
 	}
@@ -186,6 +272,9 @@ public class NameIndexReader {
 		int atomCount;
 		
 		public void merge(SuffixesStat suffixesStat) {
+			if (suffixesStat == null) {
+				return;
+			}
 			if (longestSuffixes.size() < suffixesStat.longestSuffixes.size()) {
 				this.longestSuffixes = suffixesStat.longestSuffixes;
 				this.longestSuffixesKey = suffixesStat.longestSuffixesKey;
@@ -386,7 +475,7 @@ public class NameIndexReader {
 		@Override
 		public String toString() {
 			if (poi != null) {
-				List<ValueFreq> suffixes = collectPOIFrequencies(null);
+				List<ValueFreq> suffixes = collectPOIFrequencies();
 				return String.format("%s (%d, %s)", key, poi.getAtomsCount(), suffixes);
 			} else if (addr != null) {
 				List<ValueFreq> suffixes =  collectAddrFrequencies( key, null, null, -1);
@@ -399,6 +488,7 @@ public class NameIndexReader {
 		private List<ValueFreq> collectAddrFrequencies(String prefix, 
 				SuffixesStat suffStats, StreetsIndexStat streetsStat, int f) {
 			List<ValueFreq> suffixes = new ArrayList<>();
+			Map<Integer, ValueFreq> intSuffixes = new HashMap<>();
 			ValueFreq streetsPrefix = null;
 			if (streetsStat != null) {
 				streetsPrefix = new ValueFreq(prefix, 0);
@@ -411,12 +501,13 @@ public class NameIndexReader {
 				suffStats.prefixesCount++;
 				suffStats.suffixesLenSum += addr.getSuffixesDictionaryList().size();
 			}
-			// TODO common, integers
 			for (String s : addr.getSuffixesDictionaryList()) {
 				curSuffix = SearchAlgorithms.nameIndexDecodeDictionarySuffix(curSuffix, s);
-				suffixes.add(new ValueFreq(key + curSuffix, 0));
+				// not exactly correct as could be different values combinations
+				String name = curSuffix.startsWith(" ") ? curSuffix :  key + curSuffix;
+				suffixes.add(new ValueFreq(name, 0));
 				if (streetsStat != null) {
-					streetsPrefix.subValues.add(new ValueFreq(key + curSuffix, 0));
+					streetsPrefix.subValues.add(new ValueFreq(name, 0));
 				}
 			}
 			for (Integer i : addr.getSuffixesCommonDictionaryList()) {
@@ -436,8 +527,9 @@ public class NameIndexReader {
 				}
 				for (int i = 0; i < a.getSuffixesBitsetIndexCount(); i++) {
 					int suffBit = a.getSuffixesBitsetIndex(i);
-					// TODO delimiter words
-					if (suffBit % 2 == 0 && suffBit != 0) {
+					if(suffBit == 0) {
+						 // delimiter skip 
+					} else if (suffBit % 2 == 0 && suffBit != 0) {
 						int ind = suffBit / 2 - 1;
 						ValueFreq s = suffixes.get(ind);
 						s.freq++;
@@ -458,6 +550,16 @@ public class NameIndexReader {
 //									MapUtils.get31LatitudeY(vls[1]), MapUtils.get31LongitudeX(vls[0]),
 //									MapUtils.get31LatitudeY(vls[3]), MapUtils.get31LongitudeX(vls[2])));
 //						}
+					} else if (suffBit % 2 == 1) {
+						ValueFreq vf = intSuffixes.get(suffBit);
+						if (vf == null) {
+							vf = new ValueFreq((suffBit % 4 == 1 ? " " : "") + (suffBit >> 2), 0);
+							intSuffixes.put(suffBit, vf);
+							suffixes.add(vf);
+						}
+						vf.freq++;
+						vf.enclosing += a.getEnclosingObjects();
+						vf.maxSingleAtomEnc = Math.max(vf.maxSingleAtomEnc, a.getEnclosingObjects());
 					}
 				}
 				if (suffStats != null && f == -1) {
@@ -468,37 +570,50 @@ public class NameIndexReader {
 			return suffixes;
 		}
 		
-		private List<ValueFreq> collectPOIFrequencies(SuffixesStat stats) {
+		private List<ValueFreq> collectPOIFrequencies() {
 			List<ValueFreq> suffixes = new ArrayList<>();
 			String curSuffix = "";
-			stats.prefixesCount++;
-			stats.suffixesLenSum += poi.getSuffixesDictionaryList().size();
+			if (suffixesStat != null) {
+				suffixesStat.prefixesCount++;
+				suffixesStat.suffixesLenSum += poi.getSuffixesDictionaryList().size();
+			}
+			Map<Integer, ValueFreq> intSuffixes = new HashMap<>();
 			for (String s : poi.getSuffixesDictionaryList()) {
 				curSuffix = SearchAlgorithms.nameIndexDecodeDictionarySuffix(curSuffix, s);
-				ValueFreq vf = new ValueFreq(key + curSuffix, 0);
+				// not exactly correct as could be different values combinations
+				ValueFreq vf = new ValueFreq(curSuffix.startsWith(" ") ? curSuffix :  key + curSuffix, 0);
 				suffixes.add(vf);
 			}
 			for (Integer i : poi.getSuffixesCommonDictionaryList()) {
 				String value = commonsList.get(i);
 				suffixes.add(new ValueFreq(" " + value, 0));
 			}
-			if (stats != null && stats.longestSuffixes.size() < suffixes.size()) {
-				stats.longestSuffixes = suffixes;
-				stats.longestSuffixesKey = key;
+			if (suffixesStat != null && suffixesStat.longestSuffixes.size() < suffixes.size()) {
+				suffixesStat.longestSuffixes = suffixes;
+				suffixesStat.longestSuffixesKey = key;
 			}
 			
 			for (OsmAndPoiNameIndexDataAtom a : poi.getAtomsList()) {
 				for (int i = 0; i < a.getSuffixesBitsetIndexCount(); i++) {
 					int suffBit = a.getSuffixesBitsetIndex(i);
-					// TODO delimiter words
-					if (suffBit % 2 == 0 && suffBit != 0) {
+					if(suffBit == 0) {
+						 // delimiter skip 
+					} else if (suffBit % 2 == 0) {
 						int ind = suffBit / 2 - 1;
 						ValueFreq s = suffixes.get(ind);
 						s.freq++;
+					} else if (suffBit % 2 == 1) {
+						ValueFreq vf = intSuffixes.get(suffBit);
+						if (vf == null) {
+							vf = new ValueFreq((suffBit % 4 == 1 ? " " : "") + (suffBit >> 2), 0);
+							intSuffixes.put(suffBit, vf);
+							suffixes.add(vf);
+						}
+						vf.freq++;
 					}
 				}
-				if (stats != null) {
-					stats.atomCount++;
+				if (suffixesStat != null) {
+					suffixesStat.atomCount++;
 				}
 			}
 			Collections.sort(suffixes);
@@ -541,12 +656,37 @@ public class NameIndexReader {
 		this.bndsStat = bndsStat;
 	}
 	
+	
+	public Map<String, ValueFreq> getCommonWordsStats() {
+		if (commonStatsValues != null) {
+			return commonStatsValues;
+		}
+		if (commonStats == null) {
+			return null;
+		}
+		commonStatsValues = new HashMap<>();
+		String name = null;
+		int valueCount = commonStats.getValueCount();
+		for (int i = 0; i < valueCount; i++) {
+			name = SearchAlgorithms.nameIndexDecodeDictionarySuffix(name, commonStats.getValue(i));
+			ValueFreq vf = new ValueFreq(name, commonStats.getMatched(i));
+			vf.extra = commonStats.getMatched(i) - commonStats.getNonindexed(i);
+			ValueFreq old = commonStatsValues.put(vf.value, vf);
+			if (old != null) {
+				throw new UnsupportedOperationException();
+			}
+		}
+		return commonStatsValues;
+	}
 
 	public CommonIndexedStats getCommonStats() {
 		return commonStats;
 	}
 
 	public void setCommonIndexed(CommonIndexedStats commonStats) {
+		if (this.commonStats != null) {
+			throw new IllegalStateException();
+		}
 		this.commonStats = commonStats;
 		String name = null;
 		for (String s : commonStats.getValueList()) {
@@ -559,10 +699,29 @@ public class NameIndexReader {
 		return commonsList.get(ind);
 	}
 	
+	public void resetMatchedKeys(String query) {
+		if (query != null) {
+			matchedKeys.put(query, new TLongHashSet());
+		}
+	}
+	
+	public boolean matchKey(String key) {
+		if (query == null) {
+			return true;
+		}
+		return query.matchKey(key);
+	}
+	
 	public void putKey(String key, int val, String prefix) {
-		PrefixNameValue nameValue = new PrefixNameValue();
-		nameValue.key = key;
-		indexByRef.put(tablePointer + val, nameValue);
+		long shift = tablePointer + val;
+		if (query != null) {
+			query.addMatchedKey(shift);
+		}
+		if (!indexByRef.containsKey(shift)) {
+			PrefixNameValue nameValue = new PrefixNameValue();
+			nameValue.key = key;
+			indexByRef.put(shift, nameValue);
+		}
 	}
 	
 	
@@ -573,7 +732,7 @@ public class NameIndexReader {
 				continue;
 			}
 			ValueFreq vf = new ValueFreq(p.key, p.poi.getAtomsCount());
-			vf.subValues = p.collectPOIFrequencies(suffixesStat);
+			vf.subValues = p.collectPOIFrequencies();
 			ls.add(vf);
 		}
 		return ls;
@@ -624,31 +783,72 @@ public class NameIndexReader {
 		return indexByRef.toString();
 	}
 
-	public void addData(OsmAndPoiNameIndexData from, long currentShift) {
+	public PrefixNameValue addData(OsmAndPoiNameIndexData from, long currentShift) {
 		PrefixNameValue obj = indexByRef.get(currentShift);
 		if (obj.poi != null) {
 			throw new IllegalStateException(obj.toString());
 		}
 		obj.shift = currentShift;
 		obj.poi = from;
+		return obj;
 	}
 	
-	public Map<Long, PrefixNameValue> getIndexByRef() {
-		return indexByRef;
+	
+	public List<PrefixNameValue> getAtomsToLoad(TLongArrayList loffsets) {
+		List<PrefixNameValue> r = new ArrayList<>();
+		TLongIterator it = query.matchedKeys.iterator();
+		while(it.hasNext()) {
+			long l = it.next();
+			PrefixNameValue pv = indexByRef.get(l);
+			if (pv.addr == null && pv.poi == null) {
+				loffsets.add(l);
+			} else {
+				r.add(pv);
+			}
+		}
+		return r;
 	}
 
 
-	public void addData(AddressNameIndexData from, long currentShift) {
+	public PrefixNameValue addData(AddressNameIndexData from, long currentShift) {
 		PrefixNameValue obj = indexByRef.get(currentShift);
 		if (obj.addr != null) {
 			throw new IllegalStateException(obj.toString());
 		}
 		obj.shift = currentShift;
 		obj.addr = from;
+		return obj;
 	}
 	
-	public Collection<PrefixNameValue> getPrefixes() {
-		return indexByRef.values();
+	public NameIndexReader setQuery(String qr) {
+		return setQuery(qr, new NameIndexReaderMatcher(qr));
+	}
+	
+	public NameIndexReader setQuery(String qr, NameIndexReaderMatcher matcher) {
+		this.query = new NameIndexReaderQuery(qr, matcher);
+		this.matchedKeys.put(qr, this.query.matchedKeys);
+		return this;
+	}
+	
+	public List<PrefixNameValue> getMatchedPrefixes(String query) {
+		if (!matchedKeys.containsKey(query)) {
+			return null;
+		}
+		List<PrefixNameValue> r = new ArrayList<>();
+		for (long l : matchedKeys.get(query).toArray()) {
+			PrefixNameValue pv = indexByRef.get(l);
+			r.add(pv);
+		}
+		return r;
+	}
+
+	public void gcPrefixes(int limit) {
+		if (limit > 0 && indexByRef.size() > limit) {
+			indexByRef.clear();
+			if (matchedKeys != null) {
+				matchedKeys.clear();
+			}
+		}
 	}
 
 	

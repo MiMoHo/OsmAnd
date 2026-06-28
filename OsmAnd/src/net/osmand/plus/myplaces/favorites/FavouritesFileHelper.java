@@ -16,7 +16,6 @@ import net.osmand.data.FavouritePoint;
 import net.osmand.plus.OsmAndTaskManager;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.Version;
-import net.osmand.plus.myplaces.favorites.SaveFavoritesTask.SaveFavoritesListener;
 import net.osmand.plus.shared.SharedUtil;
 import net.osmand.plus.track.helpers.GpxFileLoaderTask;
 import net.osmand.plus.utils.OsmAndFormatter;
@@ -215,7 +214,7 @@ public class FavouritesFileHelper {
 	}
 
 	public void saveFavoritesIntoFile(@NonNull List<FavoriteGroup> groups, boolean saveAllGroups,
-	                                  @Nullable SaveFavoritesListener listener) {
+	                                  @Nullable FavoritesListener listener) {
 		SaveFavoritesParams newParams = new SaveFavoritesParams(groups, saveAllGroups, listener);
 
 		synchronized (taskLock) {
@@ -231,7 +230,7 @@ public class FavouritesFileHelper {
 	}
 
 	public void saveFavoritesIntoFileSync(@NonNull List<FavoriteGroup> groups, boolean saveAllGroups,
-	                                      @Nullable SaveFavoritesListener listener) {
+	                                      @Nullable FavoritesListener listener) {
 		SaveFavoritesParams params = new SaveFavoritesParams(groups, saveAllGroups, listener);
 		SaveFavoritesTask task = new SaveFavoritesTask(this, params);
 		try {
