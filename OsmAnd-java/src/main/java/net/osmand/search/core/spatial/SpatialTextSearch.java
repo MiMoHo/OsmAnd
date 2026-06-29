@@ -296,33 +296,37 @@ public class SpatialTextSearch {
 	}
 
 	public SpatialSearchResults searchAPI(String input, SpatialSearchContext ctx) throws IOException {
-		SpatialSearchResults res = new SpatialSearchResults();
-		ctx.initFiles(cache);
-		res.input = input;
-		// 1. prepare tokens
-		res.tokens = splitWords(ctx, input);
+		try {
+			SpatialSearchResults res = new SpatialSearchResults();
+			ctx.initFiles(cache);
+			res.input = input;
+			// 1. prepare tokens
+			res.tokens = splitWords(ctx, input);
 
-		// 2. read atoms
-		ctx.stats.stepAtoms -= System.nanoTime();
-		ctx.readAtoms(res.tokens);
-		ctx.stats.stepAtoms += System.nanoTime();
+			// 2. read atoms
+			ctx.stats.stepAtoms -= System.nanoTime();
+			ctx.readAtoms(res.tokens);
+			ctx.stats.stepAtoms += System.nanoTime();
 
-		// 3. sort tokens
-		sortTokens(res.tokens);
+			// 3. sort tokens
+			sortTokens(res.tokens);
 
-		// 4. find combinations
-		ctx.stats.stepCompute -= System.nanoTime();
-//		res.combinations = findObjCombinationsSimpleIteration(res.tokens);
-		res.combinations = findLongestCombinations(ctx, res.tokens);
-		ctx.stats.stepCompute += System.nanoTime();
-		// 5. sort combinations, load objects, objects and filter duplicate
-		res.mainResults = new ArrayList<>();
-		ctx.stats.stepSort -= System.nanoTime();
-		if (res.combinations.size() > 0) {
-			combineSortFilterResults(ctx, res);
+			// 4. find combinations
+			ctx.stats.stepCompute -= System.nanoTime();
+//			res.combinations = findObjCombinationsSimpleIteration(res.tokens);
+			res.combinations = findLongestCombinations(ctx, res.tokens);
+			ctx.stats.stepCompute += System.nanoTime();
+			// 5. sort combinations, load objects, objects and filter duplicate
+			res.mainResults = new ArrayList<>();
+			ctx.stats.stepSort -= System.nanoTime();
+			if (res.combinations.size() > 0) {
+				combineSortFilterResults(ctx, res);
+			}
+			ctx.stats.stepSort += System.nanoTime();
+			return res;
+		} finally {
+			ctx.stats.finish();
 		}
-		ctx.stats.stepSort += System.nanoTime();
-		return res;
 	}
 
 	private void combineSortFilterResults(SpatialSearchContext ctx, SpatialSearchResults res) {
@@ -373,7 +377,6 @@ public class SpatialTextSearch {
 
 	public SpatialSearchResults searchTest(String input, SpatialSearchContext ctx) throws IOException {
 		SpatialSearchResults res = searchAPI(input, ctx);
-		ctx.stats.finish();
 		if (res.mainResults != null && res.mainResults.size() > 0) {
 			System.out.println("--------");
 			System.out.println("Main: " + res.combinations.get(0));
