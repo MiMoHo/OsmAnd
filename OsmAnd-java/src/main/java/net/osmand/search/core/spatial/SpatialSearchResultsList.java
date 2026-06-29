@@ -539,7 +539,9 @@ public class SpatialSearchResultsList implements Comparable<SpatialSearchResults
 		for (int i = 0; parent != null && i < parent.tCount; i++) {
 			NameIndexAtom pa = parent.linearResults.get(pindx * parent.tCount + i);
 			if (pa.id == a.id) {
-				typeIntersection[0] = parent.typeIntersections.get(i);
+				if (pindx < parent.typeIntersections.size()) {
+					typeIntersection[0] = parent.typeIntersections.get(pindx);
+				}
 				continue;
 			}
 			// pa and a using same tokens for street & house but different streets / poi same as below
