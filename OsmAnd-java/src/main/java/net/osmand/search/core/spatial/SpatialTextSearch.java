@@ -294,39 +294,43 @@ public class SpatialTextSearch {
 		return result;
 
 	}
+	public SpatialSearchResults searchStreetAPI(String input, SpatialSearchContext ctx) throws IOException {
+		SpatialSearchResults res = new SpatialSearchResults();
+		ctx.initFiles(cache);
+		res.input = input;
+		res.tokens = splitWords(ctx, input);
+		ctx.readAtoms(res.tokens);
+		return res;
+	}
 
 	public SpatialSearchResults searchAPI(String input, SpatialSearchContext ctx) throws IOException {
-		try {
-			SpatialSearchResults res = new SpatialSearchResults();
-			ctx.initFiles(cache);
-			res.input = input;
-			// 1. prepare tokens
-			res.tokens = splitWords(ctx, input);
+		SpatialSearchResults res = new SpatialSearchResults();
+		ctx.initFiles(cache);
+		res.input = input;
+		// 1. prepare tokens
+		res.tokens = splitWords(ctx, input);
 
-			// 2. read atoms
-			ctx.stats.stepAtoms -= System.nanoTime();
-			ctx.readAtoms(res.tokens);
-			ctx.stats.stepAtoms += System.nanoTime();
+		// 2. read atoms
+		ctx.stats.step1Atoms.start();
+		ctx.readAtoms(res.tokens);
+		ctx.stats.step1Atoms.finish();
 
-			// 3. sort tokens
-			sortTokens(res.tokens);
+		// 3. sort tokens
+		sortTokens(res.tokens);
 
-			// 4. find combinations
-			ctx.stats.stepCompute -= System.nanoTime();
-//			res.combinations = findObjCombinationsSimpleIteration(res.tokens);
-			res.combinations = findLongestCombinations(ctx, res.tokens);
-			ctx.stats.stepCompute += System.nanoTime();
-			// 5. sort combinations, load objects, objects and filter duplicate
-			res.mainResults = new ArrayList<>();
-			ctx.stats.stepSort -= System.nanoTime();
-			if (res.combinations.size() > 0) {
-				combineSortFilterResults(ctx, res);
-			}
-			ctx.stats.stepSort += System.nanoTime();
-			return res;
-		} finally {
-			ctx.stats.finish();
+		// 4. find combinations
+		ctx.stats.step2Compute.start();
+//		res.combinations = findObjCombinationsSimpleIteration(res.tokens);
+		res.combinations = findLongestCombinations(ctx, res.tokens);
+		ctx.stats.step2Compute.finish();
+		// 5. sort combinations, load objects, objects and filter duplicate
+		res.mainResults = new ArrayList<>();
+		ctx.stats.step3Sort.start();
+		if (res.combinations.size() > 0) {
+			combineSortFilterResults(ctx, res);
 		}
+		ctx.stats.step3Sort.finish();
+		return res;
 	}
 
 	private void combineSortFilterResults(SpatialSearchContext ctx, SpatialSearchResults res) {
@@ -376,7 +380,9 @@ public class SpatialTextSearch {
 	}
 
 	public SpatialSearchResults searchTest(String input, SpatialSearchContext ctx) throws IOException {
+		ctx.stats.requestTime.start();
 		SpatialSearchResults res = searchAPI(input, ctx);
+		ctx.stats.requestTime.finish();
 		if (res.mainResults != null && res.mainResults.size() > 0) {
 			System.out.println("--------");
 			System.out.println("Main: " + res.combinations.get(0));
