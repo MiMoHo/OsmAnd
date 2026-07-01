@@ -63,6 +63,7 @@ public class EmissionHelper {
 		LPG(10.60f, 1.86f), // L
 		GAS(4.90f, 2.28f), // kg
 		ELECTRIC(21.1f, 0.42f), // kWh fuelEmissionFactor "UE except France"
+		ETHANOL(7.85f, 1.68f), // L, E85
 		HYBRID(5.61f, 2.80f); // L, hybrid petrol
 
 		public final float fuelConsumption; // unit (L/kwH/kg)/100km
