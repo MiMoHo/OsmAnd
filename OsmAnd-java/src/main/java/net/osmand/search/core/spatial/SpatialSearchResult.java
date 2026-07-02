@@ -7,6 +7,7 @@ import java.util.List;
 
 import net.osmand.binary.ObfConstants;
 import net.osmand.data.Amenity;
+import net.osmand.data.BaseDetailsObject;
 import net.osmand.data.LatLon;
 import net.osmand.data.MapObject;
 import net.osmand.search.core.HashQuadTree;
@@ -21,6 +22,7 @@ public class SpatialSearchResult implements Comparable<SpatialSearchResult> {
 	final LatLon preciseLatlon; 
 	final int surplusWords; // negative some building numbers not found, positive some extra tokens matched
 	int visibleLevel;
+	public BaseDetailsObject unitedObject;
 	
 	private static final List<String> FILTER_DUPLICATE_POI_SUBTYPE = new ArrayList<String>(
 			Arrays.asList("building", "internet_access_yes"));

@@ -45,6 +45,7 @@ public class SpatialSearchContext {
 	List<SpatialSearchToken> tokens;
 	SpatialSearchStats stats = new SpatialSearchStats();
 	SpatialTextSearchSettings settings;
+	String lang;
 
 	
 	
@@ -104,7 +105,7 @@ public class SpatialSearchContext {
 
 	}
 
-	public SpatialSearchContext(SpatialTextSearchSettings settings, List<BinaryMapIndexReader> files, LatLon location) {
+	public SpatialSearchContext(SpatialTextSearchSettings settings, List<BinaryMapIndexReader> files, LatLon location, String lang) {
 		this.files = files;
 		this.location = location;
 		this.settings = settings;
@@ -113,6 +114,7 @@ public class SpatialSearchContext {
 		for (int k = 0; k < limitLocationBboxes.length; k++) {
 			limitLocationBboxes[k] = calculateBbox(settings.OPTIM_LIMIT_RADIUS[k], loc);
 		}
+		this.lang = lang;
 	}
 	
 	private LatLon getLimitLocationFromFiles(List<BinaryMapIndexReader> files, LatLon limitLocation) {

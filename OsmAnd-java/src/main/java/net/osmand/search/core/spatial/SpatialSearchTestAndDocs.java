@@ -144,10 +144,10 @@ public class SpatialSearchTestAndDocs {
 		String query = "Berlin hauptstrasse"; // slow
 //		query = "Kelterstraße Kernen im Remstal";
 //		query = "Germany Kelter. Kernen im Remstal";
-		query = "3 Hofäckerstraße Kernen im Remstal";
-		query = "1 W&W Platz Kornwestheim"; // duplicate word new maps needed
-		query = "1/1 Salierstraße Waiblingen"; // duplicate in house number priority 1st
-		query = "21 Heilbronner Straße Stuttgart";
+//		query = "3 Hofäckerstraße Kernen im Remstal";
+//		query = "1 W&W Platz Kornwestheim"; // duplicate word new maps needed
+//		query = "1/1 Salierstraße Waiblingen"; // duplicate in house number priority 1st
+//		query = "21 Heilbronner Straße Stuttgart";
 		
 		// Grainau Am Eibsee 1 36799292
 		// Grainau Seehäuser Eibsee 2 - 242903848 //  Seehäuser Grainau 2, Seehäuser Eibsee 2  
@@ -163,8 +163,8 @@ public class SpatialSearchTestAndDocs {
 //		Search Stats 778.5 ms - read 754.6 ms atoms (tokens 442.4 ms, obj 1.8 ms), match 281.5 ms, comp 26.4 ms
 //		Search Stats 925.5 ms - read 799.8 ms atoms (tokens 442.5 ms, obj 16.3 ms), match 280.5 ms, comp 149.5 ms
 		
-		pattern = "Us_penn";
-		pattern2 = "Us_new-york_syracuse";
+//		pattern = "Us_penn";
+//		pattern2 = "Us_new-york_syracuse";
 //		pattern = "Map";
 //		query = "Salt Lake City Pennsylvania Place 123 UT USA";
 //		query = "Salt Lake City Elephant";
@@ -311,6 +311,12 @@ public class SpatialSearchTestAndDocs {
 //		query ="Lima Calle 20 San Isidro";
 //		query ="Calle 20 ";
 
+		pattern = "Ukraine_";
+		pattern2 = "Ukraine_";
+		//query = "Софійський";
+		query = "Сіверка";
+		String lang = "en";
+
 		long t = System.nanoTime();
 
 		List<BinaryMapIndexReader> ls = new ArrayList<BinaryMapIndexReader>();
@@ -323,10 +329,7 @@ public class SpatialSearchTestAndDocs {
 		}
 		SpatialTextSearch a = new SpatialTextSearch();
 		System.out.println(String.format("Index files %.1f ms", (System.nanoTime() - t) / 1e6));
-
-//		settings.OPTIM_DELETE_EMBEDDED_BOUNDARIES = false;
-//		settings.DEDUPLICATE_RES = false;
-		SpatialSearchContext searchContext = new SpatialSearchContext(settings, ls, location);
+		SpatialSearchContext searchContext = new SpatialSearchContext(settings, ls, location, lang);
 		SpatialSearchResults rs = a.searchTest(query, searchContext, 10);
 		SpatialSearchResult mainResult = rs.getFirstResult();
 		if (mainResult != null && mainResult.matchedTokens() < rs.tokens.size() - 2) {
@@ -345,8 +348,8 @@ public class SpatialSearchTestAndDocs {
 		}
 //		settings.OPTIM_DELETE_EMBEDDED_BOUNDARIES = true;
 //		settings.DEDUPLICATE_RES = true;
-		searchContext = new SpatialSearchContext(settings, ls, location);
-		a.searchTest(query, searchContext, 1000);
+//		searchContext = new SpatialSearchContext(settings, ls, location);
+//		a.searchTest(query, searchContext, 1000);
 	}
 	
 }

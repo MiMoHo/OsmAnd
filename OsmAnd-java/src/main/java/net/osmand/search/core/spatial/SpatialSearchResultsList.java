@@ -419,18 +419,22 @@ public class SpatialSearchResultsList implements Comparable<SpatialSearchResults
 
 	public List<SpatialSearchResult> sortResults(SpatialSearchContext ctx, List<SpatialSearchResult> finalResult, boolean deduplicate) {
 		Collections.sort(finalResult, (o1, o2) -> SpatialSearchResult.compare(o1, o2, ctx.location));
-		if (deduplicate) {
-			List<SpatialSearchResult> res = new ArrayList<SpatialSearchResult>();
-			TLongHashSet duplicateIds = new TLongHashSet();
-			for (SpatialSearchResult s : finalResult) {
-				long filterId = s.getIdDeduplication();
-				if (filterId > 0 && !duplicateIds.add(filterId)) {
-					continue;
-				}
-				res.add(s);
-			}
-			finalResult = res;
-		}
+		
+		SpatialSearchDeduplication deduplication = new SpatialSearchDeduplication(ctx);
+		deduplication.uniteSearchResultsByOsmIdOrWikidata(finalResult);
+		
+//		if (deduplicate) {
+//			List<SpatialSearchResult> res = new ArrayList<SpatialSearchResult>();
+//			TLongHashSet duplicateIds = new TLongHashSet();
+//			for (SpatialSearchResult s : finalResult) {
+//				long filterId = s.getIdDeduplication();
+//				if (filterId > 0 && !duplicateIds.add(filterId)) {
+//					continue;
+//				}
+//				res.add(s);
+//			}
+//			finalResult = res;
+//		}
 		return finalResult;
 	}
 	
