@@ -482,19 +482,60 @@ public class OpeningHoursParser {
 
 		private String getTimeDay(Calendar cal, int limit, boolean opening, int sequenceIndex) {
 			String atTime = "";
+			int atTimeMinutes = -1;
 			ArrayList<OpeningHoursRule> rules = getRules(sequenceIndex);
 			OpeningHoursRule prevRule = null;
 			for (OpeningHoursRule r : rules) {
-				if (r.containsDay(cal) && r.containsMonth(cal)) {
+				if (appliesToDay(r, cal)) {
 					if (atTime.length() > 0 && prevRule != null && !r.hasOverlapTimes(cal, prevRule, true)) {
 						return atTime;
+					}
+					if (isTimeRestrictedOffRule(r) && atTimeMinutes >= 0) {
+						// Rules like "Jul-Aug 19:00-19:30 off" make only their own time ranges "off",
+						// so they adjust a time found by previous rules instead of discarding it
+						BasicOpeningHourRule offRule = (BasicOpeningHourRule) r;
+						int offTimeMinutes = offRule.getTimeMinutes(cal, false, limit, opening);
+						int currentTimeMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE);
+						if (opening) {
+							if (offRule.containsTime(atTimeMinutes)) {
+								// the opening time found before is turned off, it moves to the end of the "off" range
+								atTimeMinutes = offTimeMinutes;
+								atTime = offRule.formatResult(offTimeMinutes);
+							}
+						} else if (offTimeMinutes >= currentTimeMinutes && offTimeMinutes < atTimeMinutes) {
+							// the "off" range starts before the closing time found before, so it closes earlier
+							atTimeMinutes = offTimeMinutes;
+							atTime = offRule.formatResult(offTimeMinutes);
+						}
+					} else if (r instanceof BasicOpeningHourRule) {
+						BasicOpeningHourRule rule = (BasicOpeningHourRule) r;
+						atTimeMinutes = rule.getTimeMinutes(cal, false, limit, opening);
+						atTime = rule.formatResult(atTimeMinutes);
 					} else {
 						atTime = r.getTime(cal, false, limit, opening);
+						atTimeMinutes = -1;
 					}
+					prevRule = r;
 				}
-				prevRule = r;
 			}
 			return atTime;
+		}
+
+		/**
+		 * Check if the rule applies to the calendar day of "cal", including rules defined
+		 * by day-month or year ranges (like "Dec 24-Dec 31 off") which don't set weekdays
+		 */
+		private boolean appliesToDay(OpeningHoursRule r, Calendar cal) {
+			if (r instanceof BasicOpeningHourRule) {
+				return ((BasicOpeningHourRule) r).appliesToDay(cal);
+			}
+			return r.containsDay(cal) && r.containsMonth(cal);
+		}
+
+		private boolean isTimeRestrictedOffRule(OpeningHoursRule r) {
+			return r instanceof BasicOpeningHourRule
+					&& ((BasicOpeningHourRule) r).isOff()
+					&& ((BasicOpeningHourRule) r).timesSize() > 0;
 		}
 
 		private String getTimeAnotherDay(Calendar cal, int limit, boolean opening, int sequenceIndex) {
@@ -1346,7 +1387,10 @@ public class OpeningHoursParser {
 
 		@Override
 		public String getTime(Calendar cal, boolean checkAnotherDay, int limit, boolean opening) {
-			StringBuilder sb = new StringBuilder();
+			return formatResult(getTimeMinutes(cal, checkAnotherDay, limit, opening));
+		}
+
+		int getTimeMinutes(Calendar cal, boolean checkAnotherDay, int limit, boolean opening) {
 			int d = getCurrentDay(cal);
 			int ad = opening ? getNextDay(d) : getPreviousDay(d);
 			int time = getCurrentTimeInMinutes(cal);
@@ -1357,9 +1401,10 @@ public class OpeningHoursParser {
 					if (startTime < endTime || endTime == -1) {
 						if (days[d] && !checkAnotherDay) {
 							int diff = startTime - time;
-							if (limit == WITHOUT_TIME_LIMIT || (time <= startTime && (diff <= limit || limit == CURRENT_DAY_TIME_LIMIT))) { 
-								formatTime(startTime, sb);
-								break;
+							// for "off" rules skip time ranges that are already over
+							if ((limit == WITHOUT_TIME_LIMIT && (!off || diff >= 0))
+									|| (time <= startTime && (diff <= limit || limit == CURRENT_DAY_TIME_LIMIT))) {
+								return startTime;
 							}
 						}
 					} else {
@@ -1370,8 +1415,7 @@ public class OpeningHoursParser {
 							diff = 24 * 60 - endTime  + time;
 						}
 						if (limit == WITHOUT_TIME_LIMIT || ((diff != -1 && diff <= limit) || limit == CURRENT_DAY_TIME_LIMIT)) {
-							formatTime(startTime, sb);
-							break;
+							return startTime;
 						}
 					}
 				} else {
@@ -1379,8 +1423,7 @@ public class OpeningHoursParser {
 						if (days[d] && !checkAnotherDay) {
 							int diff = endTime - time;
 							if ((limit == WITHOUT_TIME_LIMIT && diff >= 0) || (time <= endTime && diff <= limit)) {
-								formatTime(endTime, sb);
-								break;
+								return endTime;
 							}
 						}
 					} else {
@@ -1391,17 +1434,67 @@ public class OpeningHoursParser {
 							diff = endTime - time;
 						}
 						if (limit == WITHOUT_TIME_LIMIT || (diff != -1 && diff <= limit)) {
-							formatTime(endTime, sb);
-							break;
+							return endTime;
 						}
 					}
 				}
 			}
+			return -1;
+		}
+
+		String formatResult(int timeMinutes) {
+			if (timeMinutes < 0) {
+				return "";
+			}
+			StringBuilder sb = new StringBuilder();
+			formatTime(timeMinutes, sb);
 			String res = sb.toString();
 			if (res.length() > 0 && !Algorithms.isEmpty(comment)) {
 				res += " - " + comment;
 			}
 			return res;
+		}
+
+		/**
+		 * Check if the time "timeMinutes" (in minutes of the day) is within the time ranges of this rule
+		 */
+		boolean containsTime(int timeMinutes) {
+			for (int i = 0; i < startTimes.size(); i++) {
+				int startTime = startTimes.get(i);
+				int endTime = endTimes.get(i);
+				if (endTime == -1 || startTime >= endTime) {
+					// open-ended or over-midnight range
+					if (timeMinutes >= startTime || (endTime != -1 && timeMinutes < endTime)) {
+						return true;
+					}
+				} else if (timeMinutes >= startTime && timeMinutes < endTime) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Check if the rule applies to the calendar day of "cal", including rules defined
+		 * by day-month or year ranges which don't set weekdays
+		 */
+		public boolean appliesToDay(Calendar cal) {
+			if (!containsMonth(cal)) {
+				return false;
+			}
+			int month = cal.get(Calendar.MONTH);
+			int dmonth = cal.get(Calendar.DAY_OF_MONTH) - 1;
+			boolean thisDay = true;
+			if (hasYears()) {
+				thisDay = isOpened(cal.get(Calendar.YEAR), month, dmonth);
+			} else if (hasDayMonths()) {
+				thisDay = dayMonths[month][dmonth];
+			}
+			return thisDay && (!hasDays || containsDay(cal));
+		}
+
+		public boolean isOff() {
+			return off;
 		}
 
 		@Override

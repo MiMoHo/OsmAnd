@@ -643,6 +643,80 @@ public class OpeningHoursParserTest {
 		testComma();
 		testYearFormats();
 		testGetShortInfo();
+		testTimeRestrictedOffRules();
+		testMonthRuleOverride();
+	}
+
+	private void testTimeRestrictedOffRules() throws ParseException {
+		// "off" rules with time ranges must only turn off their own time windows
+		// and must not discard opening/closing times found by other rules (#22907)
+		OpeningHoursParser.initLocalStrings(Locale.UK);
+		OpeningHoursParser.setTwelveHourFormattingEnabled(false, Locale.UK);
+		OpeningHours hours = parseOpenedHours("Mo-Fr 08:30-12:30,14:00-19:30; Sa 09:00-12:30; Jul-Aug 19:00-19:30 off; PH off");
+		System.out.println(hours);
+		// Wednesday inside the Jul-Aug period
+		testOpened("02.07.2025 13:50", hours, false);
+		testInfo("02.07.2025 13:50", hours, "Will open at 14:00");
+		testInfo("02.07.2025 05:00", hours, "Open from 08:30");
+		testInfo("02.07.2025 10:00", hours, "Open until 12:30");
+		testInfo("02.07.2025 12:20", hours, "Will close at 12:30");
+		// the "off" range shortens the evening interval
+		testOpened("02.07.2025 14:05", hours, true);
+		testInfo("02.07.2025 14:05", hours, "Open until 19:00");
+		testOpened("02.07.2025 19:10", hours, false);
+		testInfo("02.07.2025 21:00", hours, "Will open tomorrow at 08:30");
+		// outside the Jul-Aug period the "off" rule has no effect
+		testInfo("03.09.2025 13:50", hours, "Will open at 14:00");
+		testInfo("03.09.2025 14:05", hours, "Open until 19:30");
+
+		// lunch break: reopening time is the end of the "off" range
+		hours = parseOpenedHours("Mo-Fr 08:00-18:00; Mo-Fr 12:00-13:00 off");
+		System.out.println(hours);
+		testOpened("06.10.2025 12:30", hours, false);
+		testInfo("06.10.2025 12:30", hours, "Will open at 13:00");
+		testInfo("06.10.2025 10:30", hours, "Will close at 12:00");
+		testInfo("06.10.2025 14:00", hours, "Open until 18:00");
+
+		// a passed "off" range must not affect the closing time anymore (#22931)
+		hours = parseOpenedHours("Tu-Fr 08:00-17:00; Mo-Fr 12:00-13:00 off \"Lunch\"");
+		System.out.println(hours);
+		testInfo("07.10.2025 09:00", hours, "Open until 12:00 - Lunch");
+		testInfo("07.10.2025 12:30", hours, "Will open at 13:00 - Lunch");
+		testInfo("07.10.2025 15:00", hours, "Will close at 17:00");
+
+		// multiple "off" time ranges in one rule
+		hours = parseOpenedHours("Mo-Fr 08:00-20:00; Mo-Fr 10:00-10:30,15:00-15:30 off");
+		System.out.println(hours);
+		testInfo("06.10.2025 09:00", hours, "Will close at 10:00");
+		testInfo("06.10.2025 10:15", hours, "Will open at 10:30");
+		testInfo("06.10.2025 12:00", hours, "Open until 15:00");
+		testInfo("06.10.2025 16:00", hours, "Open until 20:00");
+
+		// whole-day "off" rules by year/day-month ranges must discard the opening time of that day (#21780)
+		hours = parseOpenedHours("Mo-Fr 09:00-20:00; Sa 09:00-18:00; 2025 Jan 07 - 2025 Feb 26 closed");
+		System.out.println(hours);
+		testOpened("23.01.2025 07:40", hours, false);
+		testInfo("23.01.2025 07:40", hours, "2025 Jan 7-2025 Feb 26 off");
+		testOpened("23.01.2025 12:00", hours, false);
+		testInfo("27.02.2025 09:30", hours, "Open until 20:00");
+		testInfo("06.01.2025 12:00", hours, "Open until 20:00");
+	}
+
+	private void testMonthRuleOverride() throws ParseException {
+		// later month rules override the default rule also inside the default time window (#23457)
+		OpeningHoursParser.initLocalStrings(Locale.UK);
+		OpeningHoursParser.setTwelveHourFormattingEnabled(false, Locale.UK);
+		OpeningHours hours = parseOpenedHours("07:00-17:00; Mar 07:00-19:00; Apr 07:00-21:00; May-Aug 07:00-22:00; Sep 07:00-21:00; Oct 07:00-19:00");
+		System.out.println(hours);
+		testOpened("12.09.2025 14:09", hours, true);
+		testInfo("12.09.2025 14:09", hours, "Open until 21:00");
+		testInfo("12.09.2025 18:00", hours, "Open until 21:00");
+		testInfo("12.09.2025 20:00", hours, "Will close at 21:00");
+		testOpened("12.09.2025 21:30", hours, false);
+		testInfo("12.09.2025 21:30", hours, "Will open tomorrow at 07:00");
+		testInfo("12.01.2025 14:09", hours, "Open until 17:00");
+		testInfo("12.06.2025 21:30", hours, "Will close at 22:00");
+		testInfo("12.03.2025 18:30", hours, "Will close at 19:00");
 	}
 
 	private void testGetShortInfo() throws ParseException {
