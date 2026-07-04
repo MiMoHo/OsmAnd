@@ -58,6 +58,7 @@ import net.osmand.plus.mapcontextmenu.MenuController.MenuState;
 import net.osmand.plus.mapcontextmenu.controllers.FavouritePointMenuController;
 import net.osmand.plus.mapcontextmenu.controllers.TransportStopController;
 import net.osmand.plus.mapcontextmenu.other.MenuObjectUtils;
+import net.osmand.plus.mapcontextmenu.other.ShareMenu;
 import net.osmand.plus.routepreparationmenu.ChooseRouteFragment;
 import net.osmand.plus.routepreparationmenu.MapRouteInfoMenu;
 import net.osmand.plus.settings.backend.menuitems.MainContextMenuItemsSettings;
@@ -324,6 +325,17 @@ public class MapContextMenuFragment extends BaseFullScreenFragment implements Do
 
 		GestureDetector singleTapDetector = new GestureDetector(view.getContext(), new SingleTapConfirm());
 		GestureDetector swipeDetector = new GestureDetector(view.getContext(), new HorizontalSwipeConfirm(true));
+		// the header consumes all touch events for the slide gestures, so copying
+		// the title (place name, OSM note text) is detected here as well
+		GestureDetector titleLongPressDetector = new GestureDetector(view.getContext(), new GestureDetector.SimpleOnGestureListener() {
+			@Override
+			public void onLongPress(MotionEvent e) {
+				String title = menu.getTitleStr();
+				if (!Algorithms.isEmpty(title)) {
+					ShareMenu.copyToClipboardWithToast(view.getContext(), title, true);
+				}
+			}
+		});
 
 		View.OnTouchListener slideTouchListener = new View.OnTouchListener() {
 			private float dy;
@@ -351,6 +363,7 @@ public class MapContextMenuFragment extends BaseFullScreenFragment implements Do
 			public boolean onTouch(View v, MotionEvent event) {
 
 				if (!hasMoved && event.getY() <= menuTopViewHeight) {
+					titleLongPressDetector.onTouchEvent(event);
 					if (singleTapDetector.onTouchEvent(event)) {
 						moving = false;
 						openMenuHalfScreen();
