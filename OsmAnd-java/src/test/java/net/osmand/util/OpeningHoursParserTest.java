@@ -706,6 +706,18 @@ public class OpeningHoursParserTest {
 		testOpened("06.07.2025 09:00", hours, true);  // 1st Sunday of July
 		testOpened("23.11.2025 09:00", hours, true);  // 4th Sunday of November
 		testOpened("05.10.2025 11:00", hours, false); // regular Sunday
+
+		// library from #7857, the "Sa[1,3]" rule was parsed as "24/7" before
+		hours = parseOpenedHours("Jul-Aug Mo,Tu 13:00-19:00; Jul-Aug We-Fr 08:00-14:00; Jul-Aug Sa off; "
+				+ "Jan-Jun,Sep-Dec Mo,Tu 13:00-19:00; Jan-Jun,Sep-Dec We-Fr 08:00-16:00; Jan-Jun,Sep-Dec Sa[1,3] 09:00-13:00; PH off");
+		System.out.println(hours);
+		testOpened("05.11.2019 05:00", hours, false); // issue scenario: Tuesday 5 AM, was "open 24/7"
+		testOpened("05.11.2019 14:00", hours, true);
+		testOpened("01.11.2025 10:00", hours, true);  // 1st Saturday of November
+		testOpened("08.11.2025 10:00", hours, false); // 2nd Saturday
+		testOpened("15.11.2025 10:00", hours, true);  // 3rd Saturday
+		testOpened("05.07.2025 10:00", hours, false); // Saturday in July is off
+		testOpened("09.07.2025 09:00", hours, true);  // Wednesday in July
 	}
 
 	private void testTimeRestrictedOffRules() throws ParseException {
