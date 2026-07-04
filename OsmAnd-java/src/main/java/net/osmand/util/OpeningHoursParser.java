@@ -777,6 +777,11 @@ public class OpeningHoursParser {
 		private boolean hasDays = false;
 
 		/**
+		 * nth weekday of the month masks per day (like "Su[1]"), see parseNthMask
+		 */
+		private int[] dayNth = null;
+
+		/**
 		 * represents the list on which month it is open.
 		 * Day number 0 is JANUARY.
 		 */
@@ -1090,7 +1095,7 @@ public class OpeningHoursParser {
 				int endTime = this.endTimes.get(i);
 				if (startTime < endTime || endTime == -1) {
 					// one day working like 10:00-20:00 (not 20:00-04:00)
-					if (days[d] && !checkPrevious) {
+					if (days[d] && matchesDayNth(d, cal) && !checkPrevious) {
 						if (time >= startTime && (endTime == -1 || time <= endTime)) {
 							return !off;
 						}
@@ -1098,9 +1103,9 @@ public class OpeningHoursParser {
 				} else {
 					// opening_hours includes day wrap like
 					// "We 20:00-03:00" or "We 07:00-07:00"
-					if (time >= startTime && days[d] && !checkPrevious) {
+					if (time >= startTime && days[d] && matchesDayNth(d, cal) && !checkPrevious) {
 						return !off;
-					} else if (time < endTime && days[p] && checkPrevious) {
+					} else if (time < endTime && days[p] && matchesPreviousDayNth(p, cal) && checkPrevious) {
 						// check in previous day
 						return !off;
 					}
@@ -1490,11 +1495,40 @@ public class OpeningHoursParser {
 			} else if (hasDayMonths()) {
 				thisDay = dayMonths[month][dmonth];
 			}
-			return thisDay && (!hasDays || containsDay(cal));
+			return thisDay && (!hasDays || (containsDay(cal) && matchesDayNth(getCurrentDay(cal), cal)));
 		}
 
 		public boolean isOff() {
 			return off;
+		}
+
+		void setDayNthMask(int day, int mask) {
+			if (dayNth == null) {
+				dayNth = new int[7];
+			}
+			dayNth[day] = mask;
+		}
+
+		/**
+		 * Check if the day of "cal" matches the nth weekday restriction of "day" (like "Su[1]"), if any
+		 */
+		private boolean matchesDayNth(int day, Calendar cal) {
+			if (dayNth == null || dayNth[day] == 0) {
+				return true;
+			}
+			int mask = dayNth[day];
+			int dmonth = cal.get(Calendar.DAY_OF_MONTH) - 1;
+			int nthFromEnd = (cal.getActualMaximum(Calendar.DAY_OF_MONTH) - 1 - dmonth) / 7;
+			return (mask & (1 << (dmonth / 7))) != 0 || (mask & (1 << (5 + nthFromEnd))) != 0;
+		}
+
+		private boolean matchesPreviousDayNth(int previousDay, Calendar cal) {
+			if (dayNth == null || dayNth[previousDay] == 0) {
+				return true;
+			}
+			Calendar pcal = (Calendar) cal.clone();
+			pcal.add(Calendar.DAY_OF_MONTH, -1);
+			return matchesDayNth(previousDay, pcal);
 		}
 
 		@Override
@@ -1524,6 +1558,9 @@ public class OpeningHoursParser {
 						builder.append(", "); //$NON-NLS-1$
 					}
 					builder.append(daysNames[getDayIndex(i)]);
+					if (dayNth != null && dayNth[i] != 0) {
+						appendNthString(builder, dayNth[i]);
+					}
 					dash = false;
 				}
 			}
@@ -1551,6 +1588,21 @@ public class OpeningHoursParser {
 			if(!first) {
 				builder.append(" ");
 			}
+		}
+
+		private static void appendNthString(StringBuilder builder, int mask) {
+			builder.append("[");
+			boolean first = true;
+			for (int bit = 0; bit < 10; bit++) {
+				if ((mask & (1 << bit)) != 0) {
+					if (!first) {
+						builder.append(",");
+					}
+					builder.append(bit < 5 ? bit + 1 : 4 - bit);
+					first = false;
+				}
+			}
+			builder.append("]");
 		}
 
 		/**
@@ -1658,7 +1710,7 @@ public class OpeningHoursParser {
 				}
 			}
 			if (thisDay && hasDays) {
-				thisDay = days[day];
+				thisDay = days[day] && matchesDayNth(day, cal);
 			}
 			// potential error for Dec 31 12:00-01:00
 			boolean previousDay = true; // hasDays || hasDayMonths() || hasFullYears(); // CHECK?
@@ -1672,7 +1724,7 @@ public class OpeningHoursParser {
 				}
 			}
 			if (previousDay && hasDays) {
-				previousDay = days[previous];
+				previousDay = days[previous] && matchesPreviousDayNth(previous, cal);
 			}
 			if (!thisDay && !previousDay) {
 				return 0;
@@ -1870,6 +1922,7 @@ public class OpeningHoursParser {
 			text = Integer.toString(mainNumber);
 		}
 		int mainNumber = -1;
+		int nthMask = 0;
 		TokenType type;
 		String text;
 		Token parent;
@@ -1917,17 +1970,26 @@ public class OpeningHoursParser {
 		int startWord = 0;
 		StringBuilder commentStr = new StringBuilder();
 		boolean comment = false;
+		boolean bracket = false;
 		for (int i = 0; i <= localRuleString.length(); i++) {
 			char ch = i == localRuleString.length() ? ' ' : localRuleString.charAt(i);
+			if (i == localRuleString.length()) {
+				bracket = false;
+			}
 			boolean delimiter = false;
 			Token del = null;
-			if (Character.isWhitespace(ch)) {
-				delimiter = true;
+			if (ch == '[' && !comment) {
+				// keep nth weekday brackets like "Su[1]" or "Su[-1]" together as one token
+				bracket = true;
+			} else if (ch == ']' && !comment) {
+				bracket = false;
+			} else if (Character.isWhitespace(ch)) {
+				delimiter = !bracket;
 			} else if (ch == ':') {
 				del = new Token(TokenType.TOKEN_COLON, ":");
-			} else if (ch == '-') {
+			} else if (ch == '-' && !bracket) {
 				del = new Token(TokenType.TOKEN_DASH, "-");
-			} else if (ch == ',') {
+			} else if (ch == ',' && !bracket) {
 				del = new Token(TokenType.TOKEN_COMMA, ",");
 			} else if (ch == '"') {
 				if (comment) {
@@ -1959,6 +2021,9 @@ public class OpeningHoursParser {
 		for (Token t : tokens) {
 			if (t.type == TokenType.TOKEN_UNKNOWN) {
 				findInArray(t, daysStr, TokenType.TOKEN_DAY_WEEK);
+			}
+			if (t.type == TokenType.TOKEN_UNKNOWN) {
+				findNthWeekday(t, daysStr);
 			}
 			if (t.type == TokenType.TOKEN_UNKNOWN) {
 				findInArray(t, monthsStr, TokenType.TOKEN_MONTH);
@@ -2041,6 +2106,15 @@ public class OpeningHoursParser {
 							: tokenDayMonth ? null : basic.getDays();
 					for (Token[] pair : listOfPairs) {
 						if (pair[0] != null && pair[1] != null) {
+							Token holidayToken = pair[0].type == TokenType.TOKEN_HOLIDAY ? pair[0]
+									: pair[1].type == TokenType.TOKEN_HOLIDAY ? pair[1] : null;
+							if (holidayToken != null
+									&& (pair[0].type == TokenType.TOKEN_DAY_WEEK || pair[1].type == TokenType.TOKEN_DAY_WEEK)) {
+								// "PH Su" means "public holidays falling on Sunday", so the weekday only
+								// restricts the holiday and must not fill the weekday range Mo-Su (#23990)
+								setHolidayFlag(basic, holidayToken.mainNumber);
+								continue;
+							}
 							Token firstMonthToken = pair[0].parent == null && pair[0].type == TokenType.TOKEN_MONTH ? pair[0] : pair[0].parent;
 							Token lastMonthToken = pair[1].parent == null && pair[1].type == TokenType.TOKEN_MONTH ? pair[1] : pair[1].parent;
 							if (tokenDayMonth && firstMonthToken != null) {
@@ -2110,13 +2184,7 @@ public class OpeningHoursParser {
 
 						} else if (pair[0] != null) {
 							if (pair[0].type == TokenType.TOKEN_HOLIDAY) {
-								if (pair[0].mainNumber == 0) {
-									basic.publicHoliday = true;
-								} else if (pair[0].mainNumber == 1) {
-									basic.schoolHoliday = true;
-								} else if (pair[0].mainNumber == 2) {
-									basic.easter = true;
-								}
+								setHolidayFlag(basic, pair[0].mainNumber);
 							} else if (pair[0].mainNumber >= 0) {
 								Token firstMonthToken = pair[0].parent;
 								if (tokenDayMonth && firstMonthToken != null) {
@@ -2124,6 +2192,9 @@ public class OpeningHoursParser {
 								}
 								if (array != null) {
 									array[pair[0].mainNumber] = true;
+									if (pair[0].type == TokenType.TOKEN_DAY_WEEK && pair[0].nthMask != 0) {
+										basic.setDayNthMask(pair[0].mainNumber, pair[0].nthMask);
+									}
 								}
 							}
 						}
@@ -2246,6 +2317,16 @@ public class OpeningHoursParser {
 		rules.add(0, basic);
 	}
 
+	private static void setHolidayFlag(BasicOpeningHourRule basic, int holidayIndex) {
+		if (holidayIndex == 0) {
+			basic.publicHoliday = true;
+		} else if (holidayIndex == 1) {
+			basic.schoolHoliday = true;
+		} else if (holidayIndex == 2) {
+			basic.easter = true;
+		}
+	}
+
 	private static void fillFirstLastYearsDayOfMonth(BasicOpeningHourRule basic, Token[] pair) {
 		int startMonth = pair[0].parent == null ? pair[0].mainNumber : pair[0].parent.mainNumber;
 		int startDayOfMonth = pair[0].parent == null ? 0 : pair[0].mainNumber;
@@ -2287,6 +2368,51 @@ public class OpeningHoursParser {
 				break;
 			}
 		}
+	}
+
+	/**
+	 * Recognize nth weekday tokens like "su[1]", "su[-1]" or "su[1,3]"
+	 */
+	private static void findNthWeekday(Token t, String[] daysStr) {
+		int bracket = t.text.indexOf('[');
+		if (bracket <= 0 || !t.text.endsWith("]")) {
+			return;
+		}
+		String day = t.text.substring(0, bracket);
+		for (int i = 0; i < daysStr.length; i++) {
+			if (daysStr[i].equals(day)) {
+				int mask = parseNthMask(t.text.substring(bracket + 1, t.text.length() - 1));
+				if (mask != 0) {
+					t.type = TokenType.TOKEN_DAY_WEEK;
+					t.mainNumber = i;
+					t.nthMask = mask;
+				}
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Parse an nth weekday list like "1", "-1" or "1,3" into a bit mask:
+	 * bits 0-4 for the 1st-5th weekday of the month, bits 5-9 for the last-5th last one
+	 */
+	private static int parseNthMask(String list) {
+		int mask = 0;
+		for (String part : list.split(",")) {
+			try {
+				int n = Integer.parseInt(part.trim());
+				if (n >= 1 && n <= 5) {
+					mask |= 1 << (n - 1);
+				} else if (n <= -1 && n >= -5) {
+					mask |= 1 << (4 - n);
+				} else {
+					return 0;
+				}
+			} catch (NumberFormatException e) {
+				return 0;
+			}
+		}
+		return mask;
 	}
 
 	private static List<List<String>> splitSequences(String format) {

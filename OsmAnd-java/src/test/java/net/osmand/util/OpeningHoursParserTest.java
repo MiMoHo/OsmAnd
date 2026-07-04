@@ -645,6 +645,67 @@ public class OpeningHoursParserTest {
 		testGetShortInfo();
 		testTimeRestrictedOffRules();
 		testMonthRuleOverride();
+		testHolidayWithWeekday();
+		testNthWeekdayOfMonth();
+	}
+
+	private void testHolidayWithWeekday() throws ParseException {
+		// "PH Su" means "public holidays falling on Sunday" and must not fill
+		// the weekday range Mo-Su (#23990)
+		OpeningHoursParser.initLocalStrings(Locale.UK);
+		OpeningHoursParser.setTwelveHourFormattingEnabled(false, Locale.UK);
+		OpeningHours hours = parseOpenedHours("Tu-Sa,PH 10:00-12:00,14:00-19:00; PH Su off");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("Tu-Sa, PH 10:00-12:00, 14:00-19:00; PH off", hours);
+		testOpened("07.10.2025 11:00", hours, true);  // regular Tuesday must stay open
+		testOpened("05.10.2025 11:00", hours, false); // regular Sunday
+		testOpened("06.10.2025 11:00", hours, false); // Monday
+		testInfo("07.10.2025 11:00", hours, "Will close at 12:00");
+
+		// without holiday info the rule can not be applied to regular weekdays
+		hours = parseOpenedHours("PH Su 08:30-12:30");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("PH 08:30-12:30", hours);
+		testOpened("06.10.2025 09:00", hours, false); // Monday
+		testOpened("05.10.2025 09:00", hours, false); // regular Sunday
+
+		hours = parseOpenedHours("SH Mo-Fr 10:00-14:00");
+		System.out.println(hours);
+		testOpened("06.10.2025 11:00", hours, false); // regular Monday
+	}
+
+	private void testNthWeekdayOfMonth() throws ParseException {
+		// nth weekday of the month like "Su[1]", "Su[-1]" or "Su[1,3]" (#23990)
+		OpeningHoursParser.initLocalStrings(Locale.UK);
+		OpeningHoursParser.setTwelveHourFormattingEnabled(false, Locale.UK);
+		OpeningHours hours = parseOpenedHours("Jul Su[1] 08:00-18:00");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("Jul Su[1] 08:00-18:00", hours);
+		testOpened("06.07.2025 10:00", hours, true);  // 1st Sunday of July
+		testOpened("13.07.2025 10:00", hours, false); // 2nd Sunday
+		testOpened("07.07.2025 10:00", hours, false); // Monday
+		testOpened("01.06.2025 10:00", hours, false); // Sunday outside July
+
+		hours = parseOpenedHours("Nov Su[-1] 08:00-18:00");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("Nov Su[-1] 08:00-18:00", hours);
+		testOpened("30.11.2025 10:00", hours, true);  // last Sunday of November
+		testOpened("23.11.2025 10:00", hours, false); // 4th but not last Sunday
+
+		hours = parseOpenedHours("Su[1,3] 08:00-12:00");
+		System.out.println(hours);
+		testOpened("05.10.2025 09:00", hours, true);  // 1st Sunday
+		testOpened("12.10.2025 09:00", hours, false); // 2nd Sunday
+		testOpened("19.10.2025 09:00", hours, true);  // 3rd Sunday
+
+		// full rule from #23990
+		hours = parseOpenedHours("Tu-Sa,PH 10:00-12:00,14:00-19:00; PH Su off; May 01,Dec 25 off; Jul Su[1] 08:00-18:00; Nov Su[4] 08:00-18:00");
+		System.out.println(hours);
+		testOpened("07.10.2025 11:00", hours, true);  // regular Tuesday
+		testOpened("01.05.2025 11:00", hours, false); // May 1st
+		testOpened("06.07.2025 09:00", hours, true);  // 1st Sunday of July
+		testOpened("23.11.2025 09:00", hours, true);  // 4th Sunday of November
+		testOpened("05.10.2025 11:00", hours, false); // regular Sunday
 	}
 
 	private void testTimeRestrictedOffRules() throws ParseException {
