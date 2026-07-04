@@ -647,6 +647,33 @@ public class OpeningHoursParserTest {
 		testMonthRuleOverride();
 		testHolidayWithWeekday();
 		testNthWeekdayOfMonth();
+		testOvernightNextOpening();
+	}
+
+	private void testOvernightNextOpening() throws ParseException {
+		// overnight rules of other days must not report an opening time for today,
+		// and a still running overnight session determines the closing time
+		OpeningHoursParser.initLocalStrings(Locale.UK);
+		OpeningHoursParser.setTwelveHourFormattingEnabled(false, Locale.UK);
+		OpeningHours hours = parseOpenedHours("Mo-Th,Su 09:00-00:30; Fr 09:00-16:30");
+		System.out.println(hours);
+		// Friday evening: Saturday is closed, so the next opening is on Sunday
+		// (was "Open from 09:00", which means "opens today")
+		testOpened("06.02.2026 21:00", hours, false);
+		testInfo("06.02.2026 21:00", hours, "Will open on 09:00 Sun.");
+		testInfo("06.02.2026 19:00", hours, "Will open on 09:00 Sun.");
+		// Friday 00:15 is inside the Thursday session which ends 00:30
+		// (was "Open until 16:30" from the Friday rule)
+		testOpened("06.02.2026 00:15", hours, true);
+		testInfo("06.02.2026 00:15", hours, "Will close at 00:30");
+		// unchanged behavior around it
+		testInfo("06.02.2026 12:00", hours, "Open until 16:30");
+		testInfo("06.02.2026 15:00", hours, "Will close at 16:30");
+		testOpened("07.02.2026 12:00", hours, false);
+		testInfo("07.02.2026 12:00", hours, "Will open tomorrow at 09:00");
+		testOpened("08.02.2026 23:00", hours, true);
+		testInfo("08.02.2026 23:00", hours, "Open until 00:30");
+		testInfo("09.02.2026 07:00", hours, "Will open at 09:00");
 	}
 
 	private void testHolidayWithWeekday() throws ParseException {

@@ -473,11 +473,29 @@ public class OpeningHoursParser {
 		}
 
 		private String getTime(Calendar cal, int limit, boolean opening, int sequenceIndex) {
+			if (!opening) {
+				// an overnight session of the previous day which is still open ends before
+				// anything the rules of the current day contribute (like "Fr 09:00-16:30"
+				// while a "Mo-Th 09:00-00:30" session is running at Friday 00:15)
+				String spillOverClosing = getSpillOverClosing(cal, limit, sequenceIndex);
+				if (!Algorithms.isEmpty(spillOverClosing)) {
+					return spillOverClosing;
+				}
+			}
 			String time = getTimeDay(cal, limit, opening, sequenceIndex);
 			if (Algorithms.isEmpty(time)) {
 				time = getTimeAnotherDay(cal, limit, opening, sequenceIndex);
 			}
 			return time;
+		}
+
+		private String getSpillOverClosing(Calendar cal, int limit, int sequenceIndex) {
+			for (OpeningHoursRule r : getRules(sequenceIndex)) {
+				if (r.containsPreviousDay(cal) && r.containsMonth(cal) && r.isOpenedForTime(cal, true)) {
+					return r.getTime(cal, true, limit, false);
+				}
+			}
+			return "";
 		}
 
 		private String getTimeDay(Calendar cal, int limit, boolean opening, int sequenceIndex) {
@@ -1419,7 +1437,9 @@ public class OpeningHoursParser {
 						} else if (time > endTime && days[ad] && checkAnotherDay) {
 							diff = 24 * 60 - endTime  + time;
 						}
-						if (limit == WITHOUT_TIME_LIMIT || ((diff != -1 && diff <= limit) || limit == CURRENT_DAY_TIME_LIMIT)) {
+						// don't accept the time if the day checks above didn't match (diff == -1),
+						// otherwise a "Mo-Th 09:00-00:30" rule reports Friday night as opening at 09:00
+						if (limit == WITHOUT_TIME_LIMIT || (diff != -1 && (diff <= limit || limit == CURRENT_DAY_TIME_LIMIT))) {
 							return startTime;
 						}
 					}
