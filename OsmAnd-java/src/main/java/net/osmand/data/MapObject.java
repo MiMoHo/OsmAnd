@@ -212,9 +212,23 @@ public abstract class MapObject implements Comparable<MapObject> {
 		if (!Algorithms.isEmpty(enName)) {
 			return unzipContent(this.enName);
 		} else if (!Algorithms.isEmpty(getName()) && transliterate) {
-			return TransliterationHelper.transliterate(getName());
+			String latinScriptName = getLatinScriptName();
+			return latinScriptName != null ? latinScriptName : TransliterationHelper.transliterate(getName());
 		}
 		return ""; //$NON-NLS-1$
+	}
+
+	// mapper-provided romanization (name:ja-Latn, name:ko-Latn, name:sr-Latn, ...) reads correctly,
+	// unlike machine transliteration which e.g. renders Japanese kanji with Chinese readings
+	private String getLatinScriptName() {
+		if (names != null) {
+			for (Entry<String, String> entry : names.entrySet()) {
+				if (entry.getKey().toLowerCase().endsWith("-latn") && !Algorithms.isEmpty(entry.getValue())) {
+					return unzipContent(entry.getValue());
+				}
+			}
+		}
+		return null;
 	}
 
 	public void setEnName(String enName) {
