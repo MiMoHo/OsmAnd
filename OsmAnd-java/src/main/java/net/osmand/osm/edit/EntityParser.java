@@ -44,7 +44,8 @@ public class EntityParser {
 		for (Map.Entry<String, String> entry : tags.entrySet()) {
 			String ts = entry.getKey();
 			if (ts.startsWith("name:") && !ts.equals(OSMTagKey.NAME_EN.getValue())) {
-				String lang = ts.substring(("name:").length());
+				// langsSet holds lowercase codes while OSM uses BCP 47 capitalization (name:sr-Latn, name:zh-Hans)
+				String lang = ts.substring(("name:").length()).toLowerCase();
 				if (MapRenderingTypes.langsSet.contains(lang)) {
 					mo.setName(lang, entry.getValue());
 				}
