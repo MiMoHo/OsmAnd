@@ -1453,7 +1453,10 @@ public class OpeningHoursParser {
 						}
 					} else {
 						int diff = -1;
-						if (time <= endTime && days[d] && !checkAnotherDay) {
+						if ((time >= startTime || time <= endTime) && days[d] && !checkAnotherDay) {
+							// still inside an overnight session of the current day: the closing
+							// time is "endTime" on the next calendar day, so during the evening
+							// part (time >= startTime) the minutes-to-close must cross midnight
 							diff = 24 * 60 - time + endTime;
 						} else if (time < endTime && days[ad] && checkAnotherDay) {
 							diff = endTime - time;

@@ -648,6 +648,7 @@ public class OpeningHoursParserTest {
 		testHolidayWithWeekday();
 		testNthWeekdayOfMonth();
 		testOvernightNextOpening();
+		testRealWorldSchedules();
 	}
 
 	private void testOvernightNextOpening() throws ParseException {
@@ -671,9 +672,131 @@ public class OpeningHoursParserTest {
 		testInfo("06.02.2026 15:00", hours, "Will close at 16:30");
 		testOpened("07.02.2026 12:00", hours, false);
 		testInfo("07.02.2026 12:00", hours, "Will open tomorrow at 09:00");
+		// Sunday evening: the overnight session closes at 00:30 the next day, so the
+		// "closing soon" warning must also trigger before midnight (was "Open until 00:30")
 		testOpened("08.02.2026 23:00", hours, true);
-		testInfo("08.02.2026 23:00", hours, "Open until 00:30");
+		testInfo("08.02.2026 22:00", hours, "Open until 00:30"); // 2.5 h to closing
+		testInfo("08.02.2026 23:00", hours, "Will close at 00:30"); // 1.5 h to closing
+		testInfo("08.02.2026 23:50", hours, "Will close at 00:30"); // 40 min to closing
 		testInfo("09.02.2026 07:00", hours, "Will open at 09:00");
+	}
+
+	// Real-world schedules (the kind actually tagged on OSM shops, bars, markets, museums)
+	// exercising the fixes of this PR end to end: time-restricted "off", seasonal month
+	// overrides, nth weekday of month and overnight next-open/close.
+	private void testRealWorldSchedules() throws ParseException {
+		OpeningHoursParser.initLocalStrings(Locale.UK);
+		OpeningHoursParser.setTwelveHourFormattingEnabled(false, Locale.UK);
+
+		// weekend-only nightclub, overnight into the next morning; next opening after the
+		// last overnight day (Sat) skips the whole week to the following Friday
+		OpeningHours hours = parseOpenedHours("Fr,Sa 20:00-04:00");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("Fr, Sa 20:00-04:00", hours);
+		testInfo("03.01.2025 19:00", hours, "Will open at 20:00");     // Fri, opens in 1 h
+		testInfo("03.01.2025 23:30", hours, "Open until 04:00");       // Fri night, closes 04:00
+		testInfo("04.01.2025 02:00", hours, "Will close at 04:00");    // Sat 02:00, Fri session
+		testInfo("05.01.2025 01:00", hours, "Open until 04:00");       // Sun 01:00, Sat session
+		testOpened("05.01.2025 05:00", hours, false);
+		testInfo("05.01.2025 05:00", hours, "Will open on 20:00 Fri."); // closed until next Fri
+		testInfo("06.01.2025 12:00", hours, "Will open on 20:00 Fri.");
+
+		// neighbourhood bar, mix of overnight and non-overnight days; the "closing soon"
+		// warning must trigger before midnight for the overnight days too
+		hours = parseOpenedHours("We-Th 18:00-01:00; Fr-Sa 18:00-03:00; Su 16:00-23:00");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("We, Th 18:00-01:00; Fr, Sa 18:00-03:00; Su 16:00-23:00", hours);
+		testInfo("04.06.2025 23:30", hours, "Will close at 01:00");    // Wed 23:30 -> 90 min to close
+		testInfo("05.06.2025 00:30", hours, "Will close at 01:00");    // Thu 00:30, Wed session
+		testInfo("07.06.2025 02:00", hours, "Will close at 03:00");    // Sat 02:00, Fri session
+		testInfo("08.06.2025 22:00", hours, "Will close at 23:00");    // Sun evening
+		testOpened("08.06.2025 03:00", hours, false);
+		testInfo("08.06.2025 03:00", hours, "Open from 16:00");        // Sun early morning, opens 16:00
+		testInfo("10.06.2025 20:00", hours, "Will open tomorrow at 18:00"); // Tue closed
+
+		// ice-cream parlour with a reduced winter schedule that wraps the year end (Dec-Feb);
+		// the winter rule must win inside the summer time window too (#23457 family)
+		hours = parseOpenedHours("Mo-Su 12:00-22:00; Dec-Feb Mo-Su 13:00-18:00");
+		System.out.println(hours);
+		testInfo("15.01.2026 14:00", hours, "Open until 18:00");       // winter override
+		testOpened("07.02.2026 12:30", hours, false);
+		testInfo("07.02.2026 12:30", hours, "Will open at 13:00");     // 12:30 winter-closed
+		testInfo("10.12.2025 20:00", hours, "Will open tomorrow at 13:00");
+		testInfo("20.06.2025 21:00", hours, "Will close at 22:00");    // summer
+		testInfo("30.11.2025 19:00", hours, "Open until 22:00");       // Nov still summer
+
+		// museum with a Monday closing day and a wrap-around winter season (Nov-Mar)
+		hours = parseOpenedHours("Tu-Su 10:00-18:00; Nov-Mar Tu-Su 10:00-16:00");
+		System.out.println(hours);
+		testInfo("14.02.2026 15:00", hours, "Will close at 16:00");    // winter
+		testInfo("15.05.2025 17:00", hours, "Will close at 18:00");    // summer
+		testOpened("08.06.2025 19:00", hours, false);
+		testInfo("08.06.2025 19:00", hours, "Will open on 10:00 Tue."); // Sun evening, Mon closed
+		testInfo("20.01.2026 17:00", hours, "Will open tomorrow at 10:00");
+		testInfo("20.12.2025 07:30", hours, "Open from 10:00");
+
+		// pharmacy with a lunch closure; a passed lunch break must not shorten the afternoon
+		// closing time (#22931) and the reopening is the end of the "off" range
+		hours = parseOpenedHours("Mo-Fr 08:30-18:30; Sa 09:00-13:00; Mo-Fr 13:00-14:00 off");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("Mo-Fr 08:30-18:30; Sa 09:00-13:00; Mo-Fr 13:00-14:00 off", hours);
+		testInfo("02.06.2025 10:30", hours, "Open until 13:00");       // closes for lunch
+		testOpened("02.06.2025 13:20", hours, false);
+		testInfo("02.06.2025 13:20", hours, "Will open at 14:00");     // lunch break
+		testInfo("02.06.2025 15:00", hours, "Open until 18:30");       // afternoon, full closing time
+		testInfo("02.06.2025 17:00", hours, "Will close at 18:30");
+		testInfo("07.06.2025 11:00", hours, "Will close at 13:00");    // Saturday
+		testInfo("08.06.2025 12:00", hours, "Will open tomorrow at 08:30");
+
+		// weekly farmers market plus a "first Sunday of the month" special during the season
+		hours = parseOpenedHours("We,Sa 07:00-13:00; Apr-Oct Su[1] 08:00-16:00");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("We, Sa 07:00-13:00; Apr-Oct Su[1] 08:00-16:00", hours);
+		testOpened("06.07.2025 07:30", hours, false);
+		testInfo("06.07.2025 07:30", hours, "Will open at 08:00");     // 1st Sunday of July
+		testInfo("06.07.2025 09:00", hours, "Open until 16:00");
+		testInfo("06.07.2025 15:00", hours, "Will close at 16:00");
+		testOpened("13.07.2025 10:00", hours, false);                 // 2nd Sunday, no market
+		testInfo("13.07.2025 10:00", hours, "Will open on 07:00 Wed.");
+		testInfo("04.10.2025 12:00", hours, "Will close at 13:00");    // Saturday market
+		testOpened("07.01.2025 08:00", hours, false);                 // January, out of season
+
+		// rural church sharing a priest: mass on 1st/3rd/5th Sundays in the morning,
+		// on 2nd/4th Sundays in the evening; the tricky 5th-Sunday occurrence must count
+		hours = parseOpenedHours("Su[1,3,5] 09:00-10:00; Su[2,4] 18:00-19:00");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("Su[1,3,5] 09:00-10:00; Su[2,4] 18:00-19:00", hours);
+		testOpened("03.08.2025 09:30", hours, true);                  // 1st Sunday morning
+		testInfo("03.08.2025 09:30", hours, "Will close at 10:00");
+		testOpened("10.08.2025 09:30", hours, false);                 // 2nd Sunday, no morning mass
+		testInfo("10.08.2025 09:30", hours, "Open from 18:00");
+		testInfo("10.08.2025 18:30", hours, "Will close at 19:00");   // 2nd Sunday evening
+		testOpened("31.08.2025 09:45", hours, true);                  // 5th Sunday counts
+		testInfo("31.08.2025 09:45", hours, "Will close at 10:00");
+		testInfo("06.08.2025 12:00", hours, "Will open on 18:00 Sun."); // next is 2nd Sunday
+
+		// bakery open every day including Sunday morning, closed on public holidays; the
+		// trailing "PH off" must not disturb the regular Sunday hours
+		hours = parseOpenedHours("Mo-Fr 06:00-18:30; Sa 06:30-13:00; Su 07:30-11:00; PH off");
+		System.out.println(hours);
+		testParsedAndAssembledCorrectly("Mo-Fr 06:00-18:30; Sa 06:30-13:00; Su 07:30-11:00; PH off", hours);
+		testInfo("12.10.2025 08:00", hours, "Open until 11:00");       // Sunday morning
+		testInfo("12.10.2025 09:30", hours, "Will close at 11:00");
+		testOpened("12.10.2025 12:00", hours, false);
+		testInfo("12.10.2025 12:00", hours, "Will open tomorrow at 06:00");
+		testInfo("11.10.2025 13:30", hours, "Will open tomorrow at 07:30"); // Sat -> Sun
+		testInfo("10.10.2025 18:00", hours, "Will close at 18:30");    // Friday
+		testInfo("06.10.2025 03:00", hours, "Open from 06:00");
+
+		// self-service car wash with a reduced-noise winter evening off window; the seasonal
+		// "off" must only shorten its own window and only in its months
+		hours = parseOpenedHours("Mo-Sa 07:00-21:00; Nov-Feb 19:00-21:00 off");
+		System.out.println(hours);
+		testInfo("15.01.2025 18:30", hours, "Will close at 19:00");    // winter, off shortens evening
+		testInfo("16.07.2025 18:30", hours, "Open until 21:00");       // summer, no off
+		testInfo("16.07.2025 19:30", hours, "Will close at 21:00");
+		testInfo("16.07.2025 04:30", hours, "Open from 07:00");
+		testInfo("15.01.2025 06:00", hours, "Will open at 07:00");
 	}
 
 	private void testHolidayWithWeekday() throws ParseException {
